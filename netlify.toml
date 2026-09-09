@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PUPPETEER_CACHE_DIR = "/opt/build/repo/.cache/puppeteer"
+
+[build.processing]
+  skip_processing = true

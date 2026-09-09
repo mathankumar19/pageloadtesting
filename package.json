@@ -1,0 +1,20 @@
+{
+  "name": "pageload",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lighthouse pageload performance reports for multiple sites and languages",
+  "type": "module",
+  "engines": {
+    "node": ">=18.16.0"
+  },
+  "scripts": {
+    "report": "node src/run-lighthouse.js",
+    "dashboard": "node src/build-dashboard.js",
+    "build": "npm run report && npm run dashboard"
+  },
+  "dependencies": {
+    "chrome-launcher": "^1.1.2",
+    "lighthouse": "^12.2.1",
+    "puppeteer": "^23.11.1"
+  }
+}
