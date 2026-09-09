@@ -29,6 +29,19 @@ Every entry is audited twice (mobile + desktop), so N entries → 2N audits.
 
 `sites.json` is validated on startup — the file must be a non-empty array and every entry must have all four fields, or the run aborts before launching Chrome.
 
+**Grouping by brand** — the `name` field is your brand grouping (e.g. `max`, `centrepoint`, `homecentre`). Keep it consistent across all pages of the same brand so you can filter by brand at run time (see [Run one or more brands](#run-one-or-more-brands) below).
+
+Example — three brands in one file:
+
+```json
+[
+  { "name": "max",         "language": "en", "page": "home",       "url": "https://www.maxfashion.com/ae/en" },
+  { "name": "max",         "language": "en", "page": "department", "url": "https://www.maxfashion.com/ae/en/department/women" },
+  { "name": "centrepoint", "language": "en", "page": "home",       "url": "https://www.centrepointstores.com/ae/en" },
+  { "name": "homecentre",  "language": "en", "page": "home",       "url": "https://www.homecentre.com/ae/en" }
+]
+```
+
 ## What gets measured
 
 Each audit captures the four Lighthouse category scores plus three Core Web Vitals:
@@ -72,6 +85,46 @@ npm run install-chrome    # downloads Chrome (idempotent)
 npm run report            # runs Lighthouse audits
 npm run dashboard         # rebuilds dist/ from the latest run
 ```
+
+### Choose brands, pages and/or presets at run time
+
+`npm run report` accepts three independent filters after `--`:
+
+- **Brand filter** — any positional argument is treated as a brand name (matched case-insensitively against the `name` field in `sites.json`). No positional args = all brands.
+- **Page filter** — `--page <value>` restricts to specific pages (matched case-insensitively against the `page` field). Can be repeated (`--page home --page PDP`), comma-separated (`--page home,PDP`), or use `=` (`--page=home`). No flag = all pages.
+- **Preset filter** — `--mobile` and/or `--desktop` restrict the run to those presets. No flag = both presets (same as passing both).
+
+Filters are combined with AND — e.g. `max --page cart --mobile` runs "max's cart page on mobile only" = 1 audit. Args can appear in any order.
+
+```bash
+# Brand only
+npm run report                                    # all brands × all pages × mobile + desktop  (default)
+npm run report -- max                             # just max
+npm run report -- max centrepoint                 # max + centrepoint
+
+# Page only
+npm run report -- --page home                     # all brands × home only × mobile + desktop
+npm run report -- --page home,PDP                 # all brands × home + PDP
+npm run report -- --page home --page PDP          # same, repeated-flag form
+
+# Preset only
+npm run report -- --mobile                        # all brands × all pages × mobile only
+npm run report -- --desktop                       # all brands × all pages × desktop only
+
+# Any combination
+npm run report -- max --page cart --mobile        # 1 audit: max/cart/mobile
+npm run report -- max centrepoint --page home     # 4 audits: 2 brands × home × mobile+desktop
+npm run report -- --page PDP --mobile             # 3 audits: 3 brands × PDP × mobile only
+```
+
+- Positional args, `--page` values, and preset flags are all case-insensitive (`--page pdp` matches `PDP`).
+- An unrecognised brand, page, or flag aborts the run and lists what's available.
+- If the combined filters leave zero entries (e.g. `max --page nonexistent`), the run aborts with a hint.
+- The filter only affects `npm run report` — `npm run dashboard` always builds from whatever the latest completed run contains. Skipped presets show `—` in the dashboard.
+- `npm run build` runs the report unfiltered. For a filtered end-to-end build, run the steps separately:
+  ```bash
+  npm run report -- max --page home --mobile && npm run dashboard
+  ```
 
 ### View the dashboard locally
 
@@ -121,14 +174,31 @@ reports/
     max-department-en-mobile.html
     max-department-en-desktop.html
     summary.json                   # scores + metrics for all audits
+  2026-09-09_2039/                 # another run
+    ...
 dist/
-  index.html                       # dashboard (built by npm run dashboard)
+  index.html                       # latest run's dashboard
+  history.html                     # list of every completed run
+  runs/
+    2026-09-09_2015/index.html     # per-run dashboard (permanent link)
+    2026-09-09_2039/index.html
   reports/
-    2026-09-09_2015/               # HTML reports copied here for linking
+    2026-09-09_2015/               # raw Lighthouse HTMLs, per run
+      ...
+    2026-09-09_2039/
       ...
 ```
 
-The dashboard always shows the **latest completed run** (folders without a `summary.json` — e.g. from a Ctrl+C'd run — are skipped automatically).
+`npm run dashboard` rebuilds `dist/` from **every** completed run in `reports/` (folders without a `summary.json` — e.g. a Ctrl+C'd run — are skipped). Each run gets a permanent per-run dashboard at `dist/runs/<runId>/index.html`, plus:
+
+- `dist/index.html` — mirrors the latest run
+- `dist/history.html` — clickable list of every run, newest first
+
+Raw Lighthouse HTMLs from a run are copied to `dist/reports/<runId>/` on first build and reused on subsequent builds (idempotent — an unchanged run's raw reports aren't re-copied).
+
+### Viewing an older run
+
+From either `dist/index.html` or `dist/history.html`, click **All runs** to see every completed run, then pick one — you land on that run's dashboard with the same layout as latest, and the same raw-report links. Each run's URL is stable (`/runs/<runId>/`), so you can bookmark or share it.
 
 ### `summary.json` shape
 
@@ -157,8 +227,15 @@ Failed audits appear in `summary.sites[].{mobile,desktop}` as `{ "file": null, "
 
 ## Dashboard
 
-`npm run dashboard` reads the latest run's `summary.json` and writes a single self-contained `dist/index.html` — no JS, no external assets, just inline CSS. The table shows one row per site with mobile and desktop columns grouped side by side.
+`npm run dashboard` reads every completed run's `summary.json` and writes:
 
+- `dist/index.html` — mirrors the latest run
+- `dist/runs/<runId>/index.html` — permanent per-run dashboard, one per completed run
+- `dist/history.html` — clickable list of every run (newest first, with started time, duration, sites, failure count)
+
+All three page types share the same self-contained HTML — no JS, no external assets, just inline CSS. The audit table shows one row per site with mobile and desktop columns grouped side by side.
+
+- **Navigation** — every page has a small header with "Latest run" and "All runs (N)" links, so you can jump between them
 - **Score color coding** — green ≥ 90, amber ≥ 50, red < 50, grey for missing/failed audits
 - **Failed audits** — render as an `error` cell with the failure message on hover; a summary count also appears in the header
 - **Dark mode** — respects `prefers-color-scheme` automatically
@@ -205,3 +282,22 @@ rmdir reports/<timestamp>
 ```bash
 lsof -ti :5005 | xargs kill
 ```
+
+
+
+
+┌─────────────────────────────────────────────────┬────────┬─────────┐
+│                     Command                     │ Audits │  ~Time  │
+├─────────────────────────────────────────────────┼────────┼─────────┤
+│ npm run report -- max --mobile                  │ 6      │ ~8 min  │
+├─────────────────────────────────────────────────┼────────┼─────────┤
+│ npm run report -- max                           │ 12     │ ~17 min │
+├─────────────────────────────────────────────────┼────────┼─────────┤
+│ npm run report -- max centrepoint --mobile      │ 12     │ ~17 min │
+├─────────────────────────────────────────────────┼────────┼─────────┤
+│ npm run report -- --mobile (all brands, mobile) │ 18     │ ~26 min │
+├─────────────────────────────────────────────────┼────────┼─────────┤
+│ npm run report -- max centrepoint               │ 24     │ ~35 min │
+├─────────────────────────────────────────────────┼────────┼─────────┤
+│ npm run report (everything)                     │ 36     │ ~52 min │
+└─────────────────────────────────────────────────┴────────┴─────────┘

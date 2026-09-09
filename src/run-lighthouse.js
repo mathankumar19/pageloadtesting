@@ -59,6 +59,73 @@ async function loadSites() {
   return sites;
 }
 
+function filterSitesByNames(sites, requestedNames) {
+  if (requestedNames.length === 0) return sites;
+  const wanted = new Set(requestedNames.map((n) => n.toLowerCase()));
+  const available = new Set(sites.map((s) => s.name.toLowerCase()));
+  const unknown = [...wanted].filter((n) => !available.has(n));
+  if (unknown.length) {
+    const availList = [...available].sort().join(', ');
+    throw new Error(`Unknown site name(s): ${unknown.join(', ')}. Available: ${availList}`);
+  }
+  return sites.filter((s) => wanted.has(s.name.toLowerCase()));
+}
+
+const KNOWN_BOOL_FLAGS = new Set(['--mobile', '--desktop']);
+const KNOWN_VALUE_FLAGS = new Set(['--page']);
+
+function parseCliArgs(argv) {
+  const brands = [];
+  const presetFlags = new Set();
+  const pageFilters = new Set();
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('--')) {
+      brands.push(a);
+      continue;
+    }
+    const eqIdx = a.indexOf('=');
+    const flagName = eqIdx >= 0 ? a.slice(0, eqIdx) : a;
+    if (KNOWN_BOOL_FLAGS.has(flagName)) {
+      if (eqIdx >= 0) throw new Error(`Flag ${flagName} does not take a value`);
+      presetFlags.add(flagName.slice(2));
+    } else if (KNOWN_VALUE_FLAGS.has(flagName)) {
+      let value;
+      if (eqIdx >= 0) {
+        value = a.slice(eqIdx + 1);
+      } else {
+        value = argv[++i];
+        if (value === undefined || value.startsWith('--')) {
+          throw new Error(`Flag ${flagName} requires a value (e.g. ${flagName} home)`);
+        }
+      }
+      for (const v of value.split(',')) {
+        const trimmed = v.trim();
+        if (trimmed) pageFilters.add(trimmed.toLowerCase());
+      }
+    } else {
+      throw new Error(`Unknown flag: ${flagName}. Known flags: --mobile, --desktop, --page`);
+    }
+  }
+  return { brands, presetFlags, pageFilters };
+}
+
+function filterPresets(presets, presetFlags) {
+  if (presetFlags.size === 0) return presets;
+  return presets.filter((p) => presetFlags.has(p.name));
+}
+
+function filterSitesByPages(sites, pageFilters) {
+  if (pageFilters.size === 0) return sites;
+  const available = new Set(sites.map((s) => s.page.toLowerCase()));
+  const unknown = [...pageFilters].filter((p) => !available.has(p));
+  if (unknown.length) {
+    const availList = [...available].sort().join(', ');
+    throw new Error(`Unknown page(s): ${unknown.join(', ')}. Available: ${availList}`);
+  }
+  return sites.filter((s) => pageFilters.has(s.page.toLowerCase()));
+}
+
 async function launchChrome(chromePath, preset) {
   return chromeLauncher.launch({
     chromePath,
@@ -142,17 +209,35 @@ async function auditWithRetries({ site, preset, chromePath, label }) {
 }
 
 async function main() {
-  const sites = await loadSites();
+  const { brands, presetFlags, pageFilters } = parseCliArgs(process.argv.slice(2));
+  const allSites = await loadSites();
+  const brandFiltered = filterSitesByNames(allSites, brands);
+  const sites = filterSitesByPages(brandFiltered, pageFilters);
+  const presets = filterPresets(PRESETS, presetFlags);
+  if (sites.length === 0) {
+    throw new Error('No entries remain after filters. Check your brand and --page values against sites.json.');
+  }
   const runId = timestamp();
   const runFolder = join(projectRoot, 'reports', runId);
   await mkdir(runFolder, { recursive: true });
-  console.log(`Reports folder: ${runFolder}\n`);
+  console.log(`Reports folder: ${runFolder}`);
+  if (brands.length) {
+    const selected = [...new Set(sites.map((s) => s.name))].join(', ');
+    console.log(`Brand filter:  ${selected}  (${sites.length}/${allSites.length} entries)`);
+  }
+  if (pageFilters.size) {
+    console.log(`Page filter:   ${[...pageFilters].join(', ')}`);
+  }
+  if (presetFlags.size) {
+    console.log(`Preset filter: ${presets.map((p) => p.name).join(', ')}`);
+  }
+  console.log();
 
   const chromePath = await resolveChromePath();
   if (chromePath) console.log(`Using Chromium at: ${chromePath}`);
   console.log(`Delay between audits: ${DELAY_BETWEEN_AUDITS_MS}ms  ·  retries per audit: ${RETRY_ATTEMPTS}\n`);
 
-  const total = sites.length * PRESETS.length;
+  const total = sites.length * presets.length;
   const summary = { runId, startedAt: new Date().toISOString(), sites: [] };
   let done = 0;
   const failures = [];
@@ -166,7 +251,7 @@ async function main() {
       mobile: null,
       desktop: null,
     };
-    for (const preset of PRESETS) {
+    for (const preset of presets) {
       done += 1;
       const label = `[${done}/${total}] ${site.name}/${site.page}/${site.language}/${preset.name}`;
       const filename = `${sanitize(site.name)}-${sanitize(site.page)}-${sanitize(site.language)}-${preset.name}.html`;
