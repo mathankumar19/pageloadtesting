@@ -10,8 +10,13 @@ const distReports = join(distRoot, 'reports');
 async function findLatestRun() {
   const entries = await readdir(reportsRoot, { withFileTypes: true });
   const runFolders = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  if (runFolders.length === 0) throw new Error(`No runs found in ${reportsRoot}`);
-  return runFolders[runFolders.length - 1];
+  for (let i = runFolders.length - 1; i >= 0; i--) {
+    try {
+      await stat(join(reportsRoot, runFolders[i], 'summary.json'));
+      return runFolders[i];
+    } catch {}
+  }
+  throw new Error(`No completed runs (with summary.json) found in ${reportsRoot}`);
 }
 
 function escapeHtml(s) {
