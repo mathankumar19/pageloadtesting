@@ -5,6 +5,9 @@
 [build.environment]
   NODE_VERSION = "20"
   PUPPETEER_CACHE_DIR = "/opt/build/repo/.cache/puppeteer"
+  AUDIT_DELAY_MS = "8000"
+  AUDIT_RETRIES = "1"
+  AUDIT_RETRY_BACKOFF_MS = "20000"
 
 [build.processing]
   skip_processing = true

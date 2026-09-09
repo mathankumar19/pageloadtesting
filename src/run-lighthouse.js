@@ -18,6 +18,10 @@ const PRESETS = [
   { name: 'desktop', config: desktopConfig, userAgent: DESKTOP_UA },
 ];
 
+const DELAY_BETWEEN_AUDITS_MS = Number(process.env.AUDIT_DELAY_MS ?? 12000);
+const RETRY_ATTEMPTS = Number(process.env.AUDIT_RETRIES ?? 1);
+const RETRY_BACKOFF_MS = Number(process.env.AUDIT_RETRY_BACKOFF_MS ?? 30000);
+
 function timestamp() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -26,6 +30,10 @@ function timestamp() {
 
 function sanitize(part) {
   return String(part).replace(/[^A-Za-z0-9._-]+/g, '_');
+}
+
+function sleep(ms) {
+  return new Promise((res) => setTimeout(res, ms));
 }
 
 async function resolveChromePath() {
@@ -51,6 +59,25 @@ async function loadSites() {
   return sites;
 }
 
+async function launchChrome(chromePath, preset) {
+  return chromeLauncher.launch({
+    chromePath,
+    chromeFlags: [
+      '--headless=new',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--no-first-run',
+      '--no-default-browser-check',
+      `--user-agent=${preset.userAgent}`,
+      '--lang=en-US',
+      '--accept-lang=en-US,en;q=0.9',
+    ],
+  });
+}
+
 async function runAudit({ url, port, preset }) {
   const options = {
     logLevel: 'error',
@@ -66,6 +93,54 @@ async function runAudit({ url, port, preset }) {
   return result;
 }
 
+async function auditWithFreshChrome({ url, preset, chromePath }) {
+  const chrome = await launchChrome(chromePath, preset);
+  try {
+    return await runAudit({ url, port: chrome.port, preset });
+  } finally {
+    await chrome.kill();
+  }
+}
+
+async function auditWithRetries({ site, preset, chromePath, label }) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS + 1; attempt++) {
+    const suffix = attempt > 1 ? ` (retry ${attempt - 1}/${RETRY_ATTEMPTS})` : '';
+    process.stdout.write(`${label}${suffix} ... `);
+    const start = Date.now();
+    try {
+      const result = await auditWithFreshChrome({ url: site.url, preset, chromePath });
+      const cats = result.lhr.categories;
+      const perf = Math.round((cats.performance?.score ?? 0) * 100);
+      const secs = ((Date.now() - start) / 1000).toFixed(1);
+      if (perf === 0 && attempt <= RETRY_ATTEMPTS) {
+        console.log(`perf 0 (soft-fail, will retry in ${RETRY_BACKOFF_MS / 1000}s) (${secs}s)`);
+        lastError = new Error('perf=0 (likely blocked or empty response)');
+        await sleep(RETRY_BACKOFF_MS);
+        continue;
+      }
+      const a11y = Math.round((cats.accessibility?.score ?? 0) * 100);
+      const bp = Math.round((cats['best-practices']?.score ?? 0) * 100);
+      const seo = Math.round((cats.seo?.score ?? 0) * 100);
+      const lcp = result.lhr.audits['largest-contentful-paint']?.displayValue ?? null;
+      const cls = result.lhr.audits['cumulative-layout-shift']?.displayValue ?? null;
+      const tbt = result.lhr.audits['total-blocking-time']?.displayValue ?? null;
+      console.log(`perf ${perf}  LCP ${lcp ?? 'n/a'}  CLS ${cls ?? 'n/a'}  (${secs}s)`);
+      return { ok: true, data: { perf, a11y, bestPractices: bp, seo, lcp, cls, tbt, report: result.report } };
+    } catch (err) {
+      const secs = ((Date.now() - start) / 1000).toFixed(1);
+      lastError = err;
+      if (attempt <= RETRY_ATTEMPTS) {
+        console.log(`FAILED (${secs}s) - ${err.message} (retrying in ${RETRY_BACKOFF_MS / 1000}s)`);
+        await sleep(RETRY_BACKOFF_MS);
+        continue;
+      }
+      console.log(`FAILED (${secs}s) - ${err.message}`);
+    }
+  }
+  return { ok: false, error: lastError };
+}
+
 async function main() {
   const sites = await loadSites();
   const runId = timestamp();
@@ -75,70 +150,41 @@ async function main() {
 
   const chromePath = await resolveChromePath();
   if (chromePath) console.log(`Using Chromium at: ${chromePath}`);
-  const chrome = await chromeLauncher.launch({
-    chromePath,
-    chromeFlags: [
-      '--headless=new',
-      '--no-sandbox',
-      '--disable-gpu',
-      '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
-      `--user-agent=${DESKTOP_UA}`,
-      '--lang=en-US',
-    ],
-  });
-  console.log(`Chrome launched on port ${chrome.port}\n`);
+  console.log(`Delay between audits: ${DELAY_BETWEEN_AUDITS_MS}ms  ·  retries per audit: ${RETRY_ATTEMPTS}\n`);
 
   const total = sites.length * PRESETS.length;
-  const summary = {
-    runId,
-    startedAt: new Date().toISOString(),
-    sites: [],
-  };
+  const summary = { runId, startedAt: new Date().toISOString(), sites: [] };
   let done = 0;
   const failures = [];
 
-  try {
-    for (const site of sites) {
-      const siteRow = {
-        name: site.name,
-        language: site.language,
-        page: site.page,
-        url: site.url,
-        mobile: null,
-        desktop: null,
-      };
-      for (const preset of PRESETS) {
-        done += 1;
-        const label = `[${done}/${total}] ${site.name}/${site.page}/${site.language}/${preset.name}`;
-        process.stdout.write(`${label} ... `);
-        const start = Date.now();
-        const filename = `${sanitize(site.name)}-${sanitize(site.page)}-${sanitize(site.language)}-${preset.name}.html`;
-        try {
-          const result = await runAudit({ url: site.url, port: chrome.port, preset });
-          const cats = result.lhr.categories;
-          const perf = Math.round((cats.performance?.score ?? 0) * 100);
-          const a11y = Math.round((cats.accessibility?.score ?? 0) * 100);
-          const bp = Math.round((cats['best-practices']?.score ?? 0) * 100);
-          const seo = Math.round((cats.seo?.score ?? 0) * 100);
-          const lcp = result.lhr.audits['largest-contentful-paint']?.displayValue ?? null;
-          const cls = result.lhr.audits['cumulative-layout-shift']?.displayValue ?? null;
-          const tbt = result.lhr.audits['total-blocking-time']?.displayValue ?? null;
-          await writeFile(join(runFolder, filename), result.report);
-          const secs = ((Date.now() - start) / 1000).toFixed(1);
-          console.log(`perf ${perf}  LCP ${lcp ?? 'n/a'}  CLS ${cls ?? 'n/a'}  (${secs}s)`);
-          siteRow[preset.name] = { file: filename, perf, a11y, bestPractices: bp, seo, lcp, cls, tbt };
-        } catch (err) {
-          const secs = ((Date.now() - start) / 1000).toFixed(1);
-          console.log(`FAILED (${secs}s) - ${err.message}`);
-          failures.push({ site: site.name, page: site.page, language: site.language, preset: preset.name, error: err.message });
-          siteRow[preset.name] = { file: null, error: err.message };
-        }
+  for (const site of sites) {
+    const siteRow = {
+      name: site.name,
+      language: site.language,
+      page: site.page,
+      url: site.url,
+      mobile: null,
+      desktop: null,
+    };
+    for (const preset of PRESETS) {
+      done += 1;
+      const label = `[${done}/${total}] ${site.name}/${site.page}/${site.language}/${preset.name}`;
+      const filename = `${sanitize(site.name)}-${sanitize(site.page)}-${sanitize(site.language)}-${preset.name}.html`;
+      const outcome = await auditWithRetries({ site, preset, chromePath, label });
+      if (outcome.ok) {
+        const { report, ...metrics } = outcome.data;
+        await writeFile(join(runFolder, filename), report);
+        siteRow[preset.name] = { file: filename, ...metrics };
+      } else {
+        const errMsg = outcome.error?.message ?? 'unknown error';
+        failures.push({ site: site.name, page: site.page, language: site.language, preset: preset.name, error: errMsg });
+        siteRow[preset.name] = { file: null, error: errMsg };
       }
-      summary.sites.push(siteRow);
+      if (done < total && DELAY_BETWEEN_AUDITS_MS > 0) {
+        await sleep(DELAY_BETWEEN_AUDITS_MS);
+      }
     }
-  } finally {
-    await chrome.kill();
+    summary.sites.push(siteRow);
   }
 
   summary.finishedAt = new Date().toISOString();

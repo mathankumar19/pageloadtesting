@@ -10,7 +10,8 @@
   "scripts": {
     "report": "node src/run-lighthouse.js",
     "dashboard": "node src/build-dashboard.js",
-    "build": "npm run report && npm run dashboard"
+    "install-chrome": "npx --yes puppeteer browsers install chrome",
+    "build": "npm run install-chrome && npm run report && npm run dashboard"
   },
   "dependencies": {
     "chrome-launcher": "^1.1.2",
