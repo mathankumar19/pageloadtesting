@@ -132,7 +132,10 @@ npm run report -- --page PDP --mobile             # 3 audits: 3 brands × PDP ×
 npm run serve
 ```
 
-Then open [http://localhost:5005/](http://localhost:5005/).
+Then open:
+- [http://localhost:5005/](http://localhost:5005/) — latest dashboard
+- [http://localhost:5005/history.html](http://localhost:5005/history.html) — all runs
+- [http://localhost:5005/control](http://localhost:5005/control) — **browser UI to trigger a scan** (see below)
 
 To use a different port for one run:
 ```bash
@@ -145,6 +148,30 @@ To change the default port permanently, edit `src/serve.js` line 7.
 ```bash
 lsof -ti :5005 | xargs kill
 ```
+
+### Run scans from the browser
+
+`npm run serve` also hosts a small control panel at [`/control`](http://localhost:5005/control) that lets you trigger scans by ticking checkboxes instead of typing CLI flags:
+
+- **Brands** — all brands defined in `sites.json`, individually selectable
+- **Pages** — every distinct `page` value from `sites.json`, individually selectable
+- **Presets** — `mobile` and `desktop`
+- **Live estimate** — audit count and rough time update as you tick/untick
+- **Live log** — the report and dashboard rebuild stream into the page over Server-Sent Events
+- **Auto rebuild** — when the report finishes (success or partial failure), `dist/` is rebuilt automatically; a green button appears to open the updated dashboard
+- **Attach-in-progress** — if a scan is already running and you refresh the page, the UI reattaches to that job's log stream rather than starting a new one
+- **One at a time** — starting a second scan while one is running returns `409 Conflict`; the UI keeps the Start button disabled
+
+This UI only works when `npm run serve` is running locally — it needs a Node process that can `spawn()` the audit and dashboard scripts, which Netlify's static file hosting can't do. The dashboard itself (everything under `dist/`) still deploys to Netlify unchanged.
+
+Under the hood, the control page uses these endpoints (also usable from `curl` if you want to script something):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/config` | Returns `sites.json` + available presets, plus any in-progress job's log so far |
+| `POST /api/run` | Body: `{ brands: [], pages: [], presets: [] }` (empty array in a field = no filter, i.e. all). Returns `{ id }` or `409` if busy |
+| `GET /api/stream` | Server-Sent Events: `event: log` for each line, `event: done` when the job finishes |
+| `GET /api/status` | Current job's `{ id, done, exitCode, lines }` |
 
 ## Tuning knobs (env vars)
 

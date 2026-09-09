@@ -16,5 +16,24 @@
   { "name": "homecentre", "language": "en", "page": "search",     "url": "https://www.homecentre.com/ae/en/search?q=beds" },
   { "name": "homecentre", "language": "en", "page": "PDP",        "url": "https://www.homecentre.com/ae/en/buy-somerton-super-king-low-bed--200x200-cm/p/168899508" },
   { "name": "homecentre", "language": "en", "page": "cart",       "url": "https://www.homecentre.com/ae/en/cart" },
-  { "name": "homecentre", "language": "en", "page": "checkout",   "url": "https://www.homecentre.com/ae/en/quickCheckout" } 
+  { "name": "homecentre", "language": "en", "page": "checkout",   "url": "https://www.homecentre.com/ae/en/quickCheckout" },
+  { "name": "homebox", "language": "en", "page": "home",       "url": "https://www.homeboxstores.com/ae/en" },
+  { "name": "homebox", "language": "en", "page": "department", "url": "https://www.homeboxstores.com/ae/en/department/bedroom" },
+  { "name": "homebox", "language": "en", "page": "search",     "url": "https://www.homeboxstores.com/ae/en/search?q=sofa" },
+  { "name": "homebox", "language": "en", "page": "PDP",        "url": "https://www.homeboxstores.com/ae/en/buy-remo-nxt-armchair-recliner-with-2-cupholders/p/167755363" },
+  { "name": "homebox", "language": "en", "page": "cart",       "url": "https://www.homeboxstores.com/ae/en/cart" },
+  { "name": "homebox", "language": "en", "page": "checkout",   "url": "https://www.homeboxstores.com/ae/en/quickCheckout" },
+  { "name": "babyshop", "language": "en", "page": "home",       "url": "https://www.babyshopstores.com/ae/en" },
+  { "name": "babyshop", "language": "en", "page": "department", "url": "https://www.babyshopstores.com/ae/en/department/baby" },
+  { "name": "babyshop", "language": "en", "page": "search",     "url": "https://www.babyshopstores.com/ae/en/search?q=stroller" },
+  { "name": "babyshop", "language": "en", "page": "PDP",        "url": "https://www.babyshopstores.com/ae/en/buy-juniors-travel-lite-cabin-approved-stroller-with-push-button-folding-metal-frame-and-wheel-lock/p/167600450" },
+  { "name": "babyshop", "language": "en", "page": "cart",       "url": "https://www.babyshopstores.com/ae/en/cart" },
+  { "name": "babyshop", "language": "en", "page": "checkout",   "url": "https://www.babyshopstores.com/ae/en/quickCheckout" },
+  { "name": "splash", "language": "en", "page": "home",       "url": "https://www.splashfashions.com/ae/en" },
+  { "name": "splash", "language": "en", "page": "department", "url": "https://www.splashfashions.com/ae/en/department/men" },
+  { "name": "splash", "language": "en", "page": "search",     "url": "https://www.splashfashions.com/ae/en/search?q=shoes" },
+  { "name": "splash", "language": "en", "page": "PDP",        "url": "https://www.splashfashions.com/ae/en/buy-kappa-men-laceup-sports-shoes/p/2025-10M-EXNAVY" },
+  { "name": "splash", "language": "en", "page": "cart",       "url": "https://www.splashfashions.com/ae/en/cart" },
+  { "name": "splash", "language": "en", "page": "checkout",   "url": "https://www.splashfashions.com/ae/en/quickCheckout" }
+
 ]

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run scan · Lighthouse</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 32px; max-width: 1000px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .nav { color: #666; margin-bottom: 24px; font-size: 13px; }
+  .nav a { color: #0366d6; text-decoration: none; }
+  .nav a:hover { text-decoration: underline; }
+  .nav .sep { color: #ccc; margin: 0 8px; }
+  section.filter { border: 1px solid #e4e4e7; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+  section.filter h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #555; display: flex; justify-content: space-between; align-items: center; }
+  .quicklinks { font-weight: 400; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .quicklinks a { color: #0366d6; text-decoration: none; margin-left: 8px; }
+  .quicklinks a:hover { text-decoration: underline; }
+  .checkboxes { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+  .checkboxes label { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #d4d4d8; border-radius: 6px; cursor: pointer; user-select: none; font-size: 13px; }
+  .checkboxes label.on { background: #eff6ff; border-color: #93c5fd; }
+  .checkboxes input { margin: 0; }
+  .estimate { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 16px; background: #f6f8fa; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+  .estimate b { font-size: 15px; }
+  .estimate .warn { color: #b26a00; }
+  .estimate .bad { color: #c62828; }
+  button#run { background: #0366d6; color: #fff; border: 0; border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button#run:hover:not(:disabled) { background: #0357b8; }
+  button#run:disabled { background: #a4a4a4; cursor: not-allowed; }
+  #status { margin-top: 16px; font-size: 13px; color: #666; }
+  #status.err { color: #c62828; }
+  #status.ok { color: #0a7c2f; }
+  pre#log { background: #0e0e10; color: #e6e6e6; border-radius: 8px; padding: 16px; margin-top: 12px; max-height: 480px; overflow: auto; font: 12px/1.5 ui-monospace, "SF Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+  pre#log:empty { display: none; }
+  a#openDash { display: inline-block; margin-top: 12px; padding: 8px 16px; background: #0a7c2f; color: #fff; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px; }
+  a#openDash:hover { background: #086a28; }
+  a#openDash[hidden] { display: none; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0e0e10; color: #e6e6e6; }
+    .nav, section.filter h3, #status { color: #999; }
+    .nav .sep { color: #444; }
+    .nav a, .quicklinks a { color: #6cb6ff; }
+    section.filter { border-color: #2a2a2e; }
+    .checkboxes label { border-color: #2a2a2e; }
+    .checkboxes label.on { background: #17293a; border-color: #2b5c95; }
+    .estimate { background: #1a1a1d; }
+    .estimate .warn { color: #f0b850; }
+    .estimate .bad { color: #ff6b6b; }
+    pre#log { background: #000; }
+    #status.err { color: #ff6b6b; }
+    #status.ok { color: #4cd07d; }
+  }
+</style>
+</head>
+<body>
+  <h1>Run a Lighthouse scan</h1>
+  <div class="nav" id="topnav">
+    <b>Control</b>
+    <span class="sep">·</span><a href="/history.html">All runs <span id="navRunCount"></span></a>
+    <span class="sep">·</span><a href="/">Latest</a>
+  </div>
+
+  <section class="filter">
+    <h3>Brands <span class="quicklinks"><a href="#" data-all="brand">All</a><a href="#" data-none="brand">None</a></span></h3>
+    <div class="checkboxes" id="brands"></div>
+  </section>
+
+  <section class="filter">
+    <h3>Pages <span class="quicklinks"><a href="#" data-all="page">All</a><a href="#" data-none="page">None</a></span></h3>
+    <div class="checkboxes" id="pages"></div>
+  </section>
+
+  <section class="filter">
+    <h3>Presets <span class="quicklinks"><a href="#" data-all="preset">All</a></span></h3>
+    <div class="checkboxes" id="presets"></div>
+  </section>
+
+  <div class="estimate">
+    <div>Selected: <b id="auditCount">—</b> audits &nbsp;<span id="breakdown"></span></div>
+    <div>Estimated: <b id="timeEst">—</b></div>
+  </div>
+
+  <button id="run" disabled>Start scan</button>
+  <div id="status"></div>
+  <pre id="log"></pre>
+  <a id="openDash" href="/" hidden>Open updated dashboard →</a>
+
+<script>
+(async () => {
+  const AUDIT_SECS = 75;         // rough average per audit
+  const DELAY_SECS = 12;         // default AUDIT_DELAY_MS locally
+
+  const config = await fetch('/api/config').then(r => r.json());
+  const { sites, presets: availablePresets, alreadyRunning, runCount } = config;
+
+  if (typeof runCount === 'number') {
+    document.getElementById('navRunCount').textContent = `(${runCount})`;
+  }
+
+  const brands  = [...new Set(sites.map(s => s.name))];
+  const pages   = [...new Set(sites.map(s => s.page))];
+
+  function makeBoxes(container, values, group) {
+    for (const v of values) {
+      const id = `${group}-${v}`;
+      const label = document.createElement('label');
+      label.innerHTML = `<input type="checkbox" name="${group}" value="${v}" id="${id}" checked><span>${v}</span>`;
+      container.appendChild(label);
+    }
+  }
+
+  makeBoxes(document.getElementById('brands'),  brands,  'brand');
+  makeBoxes(document.getElementById('pages'),   pages,   'page');
+  makeBoxes(document.getElementById('presets'), availablePresets, 'preset');
+
+  function selectedValues(group) {
+    return [...document.querySelectorAll(`input[name="${group}"]:checked`)].map(el => el.value);
+  }
+
+  function refresh() {
+    // Update label highlighting
+    for (const cb of document.querySelectorAll('.checkboxes input')) {
+      cb.closest('label').classList.toggle('on', cb.checked);
+    }
+
+    const b = selectedValues('brand');
+    const p = selectedValues('page');
+    const pr = selectedValues('preset');
+    const bSet = new Set(b), pSet = new Set(p);
+    const filtered = sites.filter(s => bSet.has(s.name) && pSet.has(s.page));
+    const audits = filtered.length * pr.length;
+    document.getElementById('auditCount').textContent = audits;
+    document.getElementById('breakdown').textContent =
+      `(${b.length} brand${b.length===1?'':'s'} × ${p.length} page${p.length===1?'':'s'} × ${pr.length} preset${pr.length===1?'':'s'})`;
+    const totalSecs = audits > 0 ? audits * AUDIT_SECS + (audits - 1) * DELAY_SECS : 0;
+    document.getElementById('timeEst').textContent =
+      audits === 0 ? '—' : totalSecs < 90 ? `~${Math.round(totalSecs)}s` : `~${Math.round(totalSecs / 60)} min`;
+
+    const est = document.querySelector('.estimate b#timeEst');
+    est.className = totalSecs > 15 * 60 ? 'bad' : totalSecs > 5 * 60 ? 'warn' : '';
+
+    const runBtn = document.getElementById('run');
+    runBtn.disabled = audits === 0 || runBtn.dataset.busy === '1';
+  }
+
+  document.querySelectorAll('.checkboxes input').forEach(cb => cb.addEventListener('change', refresh));
+
+  document.querySelectorAll('[data-all]').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const group = a.dataset.all;
+    document.querySelectorAll(`input[name="${group}"]`).forEach(cb => cb.checked = true);
+    refresh();
+  }));
+  document.querySelectorAll('[data-none]').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const group = a.dataset.none;
+    document.querySelectorAll(`input[name="${group}"]`).forEach(cb => cb.checked = false);
+    refresh();
+  }));
+
+  const runBtn = document.getElementById('run');
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+  const openDash = document.getElementById('openDash');
+
+  function appendLog(line) {
+    logEl.textContent += (logEl.textContent ? '\n' : '') + line;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  async function startRun() {
+    const filters = {
+      brands:  selectedValues('brand'),
+      pages:   selectedValues('page'),
+      presets: selectedValues('preset'),
+    };
+    if (filters.brands.length === brands.length) filters.brands = [];
+    if (filters.pages.length === pages.length) filters.pages = [];
+    if (filters.presets.length === availablePresets.length) filters.presets = [];
+
+    logEl.textContent = '';
+    openDash.hidden = true;
+    statusEl.className = '';
+    statusEl.textContent = 'Starting…';
+    runBtn.dataset.busy = '1';
+    refresh();
+
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(filters),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      statusEl.className = 'err';
+      statusEl.textContent = body.error || 'Failed to start.';
+      runBtn.dataset.busy = '';
+      refresh();
+      return;
+    }
+    statusEl.textContent = `Running (job ${body.id})…`;
+    stream();
+  }
+
+  function stream() {
+    const ev = new EventSource('/api/stream');
+    ev.addEventListener('log', (e) => appendLog(e.data));
+    ev.addEventListener('done', (e) => {
+      const payload = JSON.parse(e.data);
+      statusEl.className = payload.exitCode === 0 || payload.exitCode === 2 ? 'ok' : 'err';
+      statusEl.textContent =
+        payload.exitCode === 0 ? 'Done — all audits succeeded.' :
+        payload.exitCode === 2 ? 'Done — some audits failed (see log).' :
+        `Failed (exit ${payload.exitCode}).`;
+      openDash.hidden = false;
+      openDash.href = '/?t=' + Date.now();
+      runBtn.dataset.busy = '';
+      refresh();
+      ev.close();
+    });
+    ev.onerror = () => {
+      ev.close();
+      if (runBtn.dataset.busy === '1') {
+        statusEl.className = 'err';
+        statusEl.textContent = 'Lost connection to server.';
+        runBtn.dataset.busy = '';
+        refresh();
+      }
+    };
+  }
+
+  runBtn.addEventListener('click', startRun);
+
+  if (alreadyRunning) {
+    statusEl.textContent = 'A scan is already in progress — attaching to its log…';
+    runBtn.dataset.busy = '1';
+    for (const line of alreadyRunning.log) appendLog(line);
+    stream();
+  }
+
+  refresh();
+})();
+</script>
+</body>
+</html>

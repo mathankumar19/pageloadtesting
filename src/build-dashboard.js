@@ -95,19 +95,21 @@ const BASE_CSS = `
   }
 `;
 
-function navBar({ isLatest, homeUrl, historyUrl, runCount }) {
-  const parts = [];
-  if (isLatest) {
-    parts.push('<b>Latest run</b>');
-  } else {
-    parts.push(`<a href="${homeUrl}">Latest run</a>`);
-  }
-  parts.push(`<a href="${historyUrl}">All runs (${runCount})</a>`);
-  return `<div class="nav">${parts.join('<span class="sep">·</span>')}</div>`;
+function navBar({ active, depth, runCount }) {
+  const prefix = '../'.repeat(depth);
+  const items = [
+    { key: 'control', label: 'Control',              href: `${prefix}control` },
+    { key: 'history', label: `All runs (${runCount})`, href: `${prefix}history.html` },
+    { key: 'latest',  label: 'Latest',               href: `${prefix}index.html` },
+  ];
+  const html = items
+    .map((it) => (it.key === active ? `<b>${it.label}</b>` : `<a href="${it.href}">${it.label}</a>`))
+    .join('<span class="sep">·</span>');
+  return `<div class="nav">${html}</div>`;
 }
 
 function renderRunDashboard(summary, opts) {
-  const { linkBase, isLatest, homeUrl, historyUrl, runCount } = opts;
+  const { linkBase, active, depth, runCount } = opts;
   const rows = summary.sites.map((s) => `
     <tr>
       <td class="name">${escapeHtml(s.name)}</td>
@@ -132,7 +134,7 @@ function renderRunDashboard(summary, opts) {
 </head>
 <body>
   <h1>Lighthouse Reports</h1>
-  ${navBar({ isLatest, homeUrl, historyUrl, runCount })}
+  ${navBar({ active, depth, runCount })}
   <div class="meta">
     Run <b>${escapeHtml(summary.runId)}</b> · started ${escapeHtml(startedAt)} · finished ${escapeHtml(finishedAt)}
     ${failedCount ? `· <span class="fail">${failedCount} audit(s) failed</span>` : ''}
@@ -198,7 +200,7 @@ function renderHistoryPage(runs) {
 </head>
 <body>
   <h1>Lighthouse Reports — History</h1>
-  <div class="nav"><a href="index.html">Latest run</a><span class="sep">·</span><b>All runs (${runs.length})</b></div>
+  ${navBar({ active: 'history', depth: 0, runCount: runs.length })}
   <div class="meta">${runs.length} completed run(s), newest first.</div>
   <table>
     <thead>
@@ -250,9 +252,8 @@ async function main() {
     if (await copyRunFolder(runId)) copied++;
     const perRunHtml = renderRunDashboard(summary, {
       linkBase: '../../reports/',
-      isLatest: false,
-      homeUrl: '../../index.html',
-      historyUrl: '../../history.html',
+      active: null,
+      depth: 2,
       runCount: runs.length,
     });
     const perRunFolder = join(distRuns, runId);
@@ -263,9 +264,8 @@ async function main() {
   const latest = runs[0];
   const latestHtml = renderRunDashboard(latest.summary, {
     linkBase: 'reports/',
-    isLatest: true,
-    homeUrl: 'index.html',
-    historyUrl: 'history.html',
+    active: 'latest',
+    depth: 0,
     runCount: runs.length,
   });
   await writeFile(join(distRoot, 'index.html'), latestHtml);
