@@ -6,7 +6,7 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const reportsRoot = join(projectRoot, 'reports');
 const distRoot = join(projectRoot, 'dist');
 const distReports = join(distRoot, 'reports');
-
+ 
 async function findLatestRun() {
   const entries = await readdir(reportsRoot, { withFileTypes: true });
   const runFolders = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
@@ -43,6 +43,7 @@ function renderHtml(summary) {
   const rows = summary.sites.map((s) => `
     <tr>
       <td class="name">${escapeHtml(s.name)}</td>
+      <td class="page">${escapeHtml(s.page ?? '—')}</td>
       <td class="lang">${escapeHtml(s.language)}</td>
       <td class="url"><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.url)}</a></td>
       ${cell(s.mobile, summary.runId)}
@@ -71,6 +72,7 @@ function renderHtml(summary) {
   tbody td { padding: 10px 12px; border-bottom: 1px solid #eee; }
   tbody tr:hover { background: rgba(0,0,0,0.02); }
   td.name { font-weight: 600; }
+  td.page { font-weight: 500; text-transform: capitalize; color: #333; }
   td.lang { color: #666; text-transform: uppercase; font-size: 12px; }
   td.url a { color: #0366d6; text-decoration: none; word-break: break-all; }
   td.url a:hover { text-decoration: underline; }
@@ -89,6 +91,7 @@ function renderHtml(summary) {
     thead th.group { background: #202024; }
     tbody td { border-bottom-color: #222; }
     tbody tr:hover { background: rgba(255,255,255,0.03); }
+    td.page { color: #ddd; }
     td.url a, td.link a { color: #6cb6ff; }
     td.score.good { color: #4cd07d; }
     td.score.avg  { color: #f0b850; }
@@ -108,6 +111,7 @@ function renderHtml(summary) {
     <thead>
       <tr>
         <th rowspan="2">Site</th>
+        <th rowspan="2">Page</th>
         <th rowspan="2">Lang</th>
         <th rowspan="2">URL</th>
         <th class="group" colspan="4">Mobile</th>

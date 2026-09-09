@@ -1,8 +1,8 @@
 [
-  { "name": "site1",  "language": "en", "url": "https://www.maxfashion.com/ae/en" },
-  { "name": "site2",  "language": "en", "url": "https://www.maxfashion.com/ae/en/department/women" },
-  { "name": "site3",  "language": "en", "url": "https://www.maxfashion.com/ae/en/search?q=%20Shirts" },
-  { "name": "site4",  "language": "en", "url": "https://www.maxfashion.com/ae/en/buy-oversized-shirt/p/C26WCTFSWT133BROWNDARK" },
-  { "name": "site5",  "language": "en", "url": "https://www.maxfashion.com/ae/en/cart" },
-  { "name": "site6",  "language": "en", "url": "https://www.maxfashion.com/ae/en/quickCheckout" }
+  { "name": "max", "language": "en", "page": "home",       "url": "https://www.maxfashion.com/ae/en" },
+  { "name": "max", "language": "en", "page": "department", "url": "https://www.maxfashion.com/ae/en/department/women" },
+  { "name": "max", "language": "en", "page": "search",     "url": "https://www.maxfashion.com/ae/en/search?q=%20Shirts" },
+  { "name": "max", "language": "en", "page": "PDP",        "url": "https://www.maxfashion.com/ae/en/buy-oversized-shirt/p/C26WCTFSWT133BROWNDARK" },
+  { "name": "max", "language": "en", "page": "cart",       "url": "https://www.maxfashion.com/ae/en/cart" },
+  { "name": "max", "language": "en", "page": "checkout",   "url": "https://www.maxfashion.com/ae/en/quickCheckout" }
 ]

@@ -8,9 +8,14 @@ import desktopConfig from 'lighthouse/core/config/desktop-config.js';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+const DESKTOP_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const MOBILE_UA =
+  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
+
 const PRESETS = [
-  { name: 'mobile', config: undefined },
-  { name: 'desktop', config: desktopConfig },
+  { name: 'mobile',  config: undefined,     userAgent: MOBILE_UA },
+  { name: 'desktop', config: desktopConfig, userAgent: DESKTOP_UA },
 ];
 
 function timestamp() {
@@ -39,15 +44,23 @@ async function loadSites() {
     throw new Error('sites.json must be a non-empty array');
   }
   for (const [i, s] of sites.entries()) {
-    if (!s.name || !s.language || !s.url) {
-      throw new Error(`sites.json entry ${i} is missing name/language/url`);
+    if (!s.name || !s.language || !s.page || !s.url) {
+      throw new Error(`sites.json entry ${i} is missing name/language/page/url`);
     }
   }
   return sites;
 }
 
 async function runAudit({ url, port, preset }) {
-  const options = { logLevel: 'error', output: 'html', port };
+  const options = {
+    logLevel: 'error',
+    output: 'html',
+    port,
+    emulatedUserAgent: preset.userAgent,
+    extraHeaders: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  };
   const result = await lighthouse(url, options, preset.config);
   if (!result) throw new Error('Lighthouse returned no result');
   return result;
@@ -69,6 +82,9 @@ async function main() {
       '--no-sandbox',
       '--disable-gpu',
       '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled',
+      `--user-agent=${DESKTOP_UA}`,
+      '--lang=en-US',
     ],
   });
   console.log(`Chrome launched on port ${chrome.port}\n`);
@@ -87,16 +103,17 @@ async function main() {
       const siteRow = {
         name: site.name,
         language: site.language,
+        page: site.page,
         url: site.url,
         mobile: null,
         desktop: null,
       };
       for (const preset of PRESETS) {
         done += 1;
-        const label = `[${done}/${total}] ${site.name}/${site.language}/${preset.name}`;
+        const label = `[${done}/${total}] ${site.name}/${site.page}/${site.language}/${preset.name}`;
         process.stdout.write(`${label} ... `);
         const start = Date.now();
-        const filename = `${sanitize(site.name)}-${sanitize(site.language)}-${preset.name}.html`;
+        const filename = `${sanitize(site.name)}-${sanitize(site.page)}-${sanitize(site.language)}-${preset.name}.html`;
         try {
           const result = await runAudit({ url: site.url, port: chrome.port, preset });
           const cats = result.lhr.categories;
@@ -114,7 +131,7 @@ async function main() {
         } catch (err) {
           const secs = ((Date.now() - start) / 1000).toFixed(1);
           console.log(`FAILED (${secs}s) - ${err.message}`);
-          failures.push({ site: site.name, language: site.language, preset: preset.name, error: err.message });
+          failures.push({ site: site.name, page: site.page, language: site.language, preset: preset.name, error: err.message });
           siteRow[preset.name] = { file: null, error: err.message };
         }
       }
@@ -132,7 +149,7 @@ async function main() {
   if (failures.length) {
     console.log(`\n${failures.length} audit(s) failed:`);
     for (const f of failures) {
-      console.log(`  - ${f.site}/${f.language}/${f.preset}: ${f.error}`);
+      console.log(`  - ${f.site}/${f.page}/${f.language}/${f.preset}: ${f.error}`);
     }
     process.exitCode = 2;
   }
