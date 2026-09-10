@@ -152,7 +152,9 @@ function startRun(filters) {
 
 async function handleSSE(req, res, urlWithQuery) {
   const q = urlWithQuery.split('?')[1] ?? '';
-  const id = new URLSearchParams(q).get('id');
+  const params = new URLSearchParams(q);
+  const id = params.get('id');
+  const since = Math.max(0, Number(params.get('since') ?? 0) || 0);
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache, no-transform',
@@ -165,7 +167,9 @@ async function handleSSE(req, res, urlWithQuery) {
     res.end();
     return;
   }
-  for (const line of job.log) {
+  // Replay backlog from `since` onward so clients can resume without duplicates.
+  const backlog = job.log.slice(since);
+  for (const line of backlog) {
     res.write(`event: log\ndata: ${line.replace(/\r?\n/g, '\\n')}\n\n`);
   }
   if (job.done) {
@@ -241,7 +245,7 @@ async function getPdfBrowser() {
   return pdfBrowserPromise;
 }
 
-async function handlePdf(req, res, urlWithQuery) {
+async function handlePdf(_req, res, urlWithQuery) {
   const q = urlWithQuery.split('?')[1] ?? '';
   const params = new URLSearchParams(q);
   const rel = params.get('path');

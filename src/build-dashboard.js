@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, readdir, copyFile, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, copyFile, stat, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -94,6 +94,7 @@ const BASE_CSS = `
   td.score.poor { color: #c62828; }
   td.score.na   { color: #999; }
   td.metric { text-align: right; color: #444; font-size: 13px; }
+  td.link { white-space: nowrap; }
   td.link a { color: #0366d6; text-decoration: none; font-size: 13px; margin-right: 6px; }
   td.link a:hover { text-decoration: underline; }
   td.link a.pdf-link { color: #6a3d99; }
@@ -268,6 +269,23 @@ function renderHistoryPage(runs) {
 </body>
 </html>
 `;
+}
+
+async function pruneStale(dir, validIds) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    if (validIds.has(e.name)) continue;
+    await rm(join(dir, e.name), { recursive: true, force: true });
+    removed++;
+  }
+  return removed;
 }
 
 async function copyRunFolder(runId) {
@@ -491,6 +509,13 @@ async function main() {
   await mkdir(distRoot, { recursive: true });
   await mkdir(distReports, { recursive: true });
   await mkdir(distRuns, { recursive: true });
+
+  const validIds = new Set(runs.map((r) => r.runId));
+  const prunedReports = await pruneStale(distReports, validIds);
+  const prunedRuns = await pruneStale(distRuns, validIds);
+  if (prunedReports > 0 || prunedRuns > 0) {
+    console.log(`Pruned ${prunedReports} stale report folder(s) and ${prunedRuns} stale per-run dashboard(s)`);
+  }
 
   let copied = 0;
   for (const { runId, summary } of runs) {

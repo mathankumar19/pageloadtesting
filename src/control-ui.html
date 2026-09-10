@@ -185,8 +185,10 @@
   const logEl = document.getElementById('log');
   const openDash = document.getElementById('openDash');
 
+  let logLineCount = 0;
   function appendLog(line) {
     logEl.textContent += (logEl.textContent ? '\n' : '') + line;
+    logLineCount++;
     logEl.scrollTop = logEl.scrollHeight;
   }
 
@@ -203,6 +205,7 @@
     if (filters.presets.length === availablePresets.length) filters.presets = [];
 
     logEl.textContent = '';
+    logLineCount = 0;
     openDash.hidden = true;
     statusEl.className = '';
     statusEl.textContent = 'Starting…';
@@ -228,10 +231,11 @@
   }
 
   function stream(jobId) {
-    const ev = new EventSource('/api/stream?id=' + encodeURIComponent(jobId));
-    ev.addEventListener('log', (e) => appendLog(e.data));
-    ev.addEventListener('done', (e) => {
-      const payload = JSON.parse(e.data);
+    let ev = null;
+    let stopped = false;
+    let reconnectAttempts = 0;
+
+    function finishUI(payload) {
       statusEl.className = payload.exitCode === 0 || payload.exitCode === 2 ? 'ok' : 'err';
       statusEl.textContent =
         payload.exitCode === 0 ? 'Done — all audits succeeded.' :
@@ -241,17 +245,44 @@
       openDash.href = '/?t=' + Date.now();
       runBtn.dataset.busy = '';
       refresh();
-      ev.close();
-    });
-    ev.onerror = () => {
-      ev.close();
-      if (runBtn.dataset.busy === '1') {
+    }
+
+    function connect() {
+      const url = '/api/stream?id=' + encodeURIComponent(jobId) + '&since=' + logLineCount;
+      ev = new EventSource(url);
+      ev.addEventListener('log', (e) => appendLog(e.data));
+      ev.addEventListener('done', (e) => {
+        stopped = true;
+        const payload = JSON.parse(e.data);
+        if (payload.note === 'unknown job') {
+          statusEl.className = 'err';
+          statusEl.textContent = 'The server no longer has this job — it may have been restarted. Scan output (if any) will still appear in the dashboard.';
+          runBtn.dataset.busy = '';
+          refresh();
+        } else {
+          finishUI(payload);
+        }
+        ev.close();
+      });
+      ev.onopen = () => {
+        reconnectAttempts = 0;
+        if (runBtn.dataset.busy === '1') {
+          statusEl.className = '';
+          statusEl.textContent = `Running (job ${jobId})…`;
+        }
+      };
+      ev.onerror = () => {
+        ev.close();
+        if (stopped || runBtn.dataset.busy !== '1') return;
+        reconnectAttempts++;
+        const delay = Math.min(1000 * 2 ** (reconnectAttempts - 1), 15000);
         statusEl.className = 'err';
-        statusEl.textContent = 'Lost connection to server.';
-        runBtn.dataset.busy = '';
-        refresh();
-      }
-    };
+        statusEl.textContent = `Connection lost — reconnecting in ${Math.round(delay/1000)}s (attempt ${reconnectAttempts})…`;
+        setTimeout(() => { if (!stopped) connect(); }, delay);
+      };
+    }
+
+    connect();
   }
 
   runBtn.addEventListener('click', startRun);
