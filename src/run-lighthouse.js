@@ -27,7 +27,8 @@ const RETRY_BACKOFF_MS = Number(process.env.AUDIT_RETRY_BACKOFF_MS ?? 30000);
 function timestamp() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+  const pad3 = (n) => String(n).padStart(3, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}_${pad3(d.getMilliseconds())}`;
 }
 
 function sanitize(part) {

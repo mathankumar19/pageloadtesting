@@ -26,7 +26,14 @@ const MIME = {
   '.ico':  'image/x-icon',
 };
 
-let currentJob = null;
+const jobs = new Map();
+let jobCounter = 0;
+
+function runningJobsSummary() {
+  return [...jobs.values()]
+    .filter((j) => !j.done)
+    .map((j) => ({ id: j.id, args: j.args, startedAt: j.startedAt }));
+}
 
 function json(res, code, obj) {
   const body = JSON.stringify(obj);
@@ -103,12 +110,10 @@ function pipeChildOutput(child, job) {
 }
 
 function startRun(filters) {
-  if (currentJob && !currentJob.done) {
-    return { ok: false, error: 'A scan is already in progress.' };
-  }
   const args = buildRunArgs(filters);
+  jobCounter++;
   const job = {
-    id: Date.now().toString(36),
+    id: `${Date.now().toString(36)}-${jobCounter}`,
     args,
     log: [],
     sseClients: new Set(),
@@ -116,7 +121,7 @@ function startRun(filters) {
     exitCode: null,
     startedAt: new Date().toISOString(),
   };
-  currentJob = job;
+  jobs.set(job.id, job);
 
   broadcast(job, `$ node ${args.join(' ')}`);
   const report = spawn(process.execPath, args, { cwd: projectRoot, env: process.env });
@@ -145,19 +150,21 @@ function startRun(filters) {
   return { ok: true, id: job.id };
 }
 
-async function handleSSE(req, res) {
+async function handleSSE(req, res, urlWithQuery) {
+  const q = urlWithQuery.split('?')[1] ?? '';
+  const id = new URLSearchParams(q).get('id');
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache, no-transform',
     'connection': 'keep-alive',
   });
   res.write('retry: 2000\n\n');
-  if (!currentJob) {
-    res.write('event: done\ndata: {"exitCode":null,"note":"no job"}\n\n');
+  const job = id ? jobs.get(id) : null;
+  if (!job) {
+    res.write(`event: done\ndata: ${JSON.stringify({ exitCode: null, note: id ? 'unknown job' : 'no id' })}\n\n`);
     res.end();
     return;
   }
-  const job = currentJob;
   for (const line of job.log) {
     res.write(`event: log\ndata: ${line.replace(/\r?\n/g, '\\n')}\n\n`);
   }
@@ -182,14 +189,11 @@ async function countBuiltRuns() {
 async function handleConfig(res) {
   try {
     const sites = await loadSites(sitesJsonPath);
-    const alreadyRunning = currentJob && !currentJob.done
-      ? { id: currentJob.id, args: currentJob.args, log: currentJob.log.slice() }
-      : null;
     json(res, 200, {
       sites,
       presets: ['mobile', 'desktop'],
       runCount: await countBuiltRuns(),
-      alreadyRunning,
+      runningJobs: runningJobsSummary(),
     });
   } catch (e) {
     json(res, 500, { error: `Failed to read sites.json: ${e.message}` });
@@ -309,12 +313,13 @@ const server = createServer(async (req, res) => {
 
   if (url === '/api/config' && req.method === 'GET') return handleConfig(res);
   if (url === '/api/run' && req.method === 'POST') return handleRun(req, res);
-  if (url === '/api/stream' && req.method === 'GET') return handleSSE(req, res);
+  if (url === '/api/stream' && req.method === 'GET') return handleSSE(req, res, req.url ?? '/');
   if (url === '/api/pdf' && req.method === 'GET') return handlePdf(req, res, req.url ?? '/');
   if (url === '/api/status' && req.method === 'GET') {
-    return json(res, 200, currentJob
-      ? { id: currentJob.id, done: currentJob.done, exitCode: currentJob.exitCode, lines: currentJob.log.length }
-      : { id: null, done: null });
+    return json(res, 200, {
+      running: runningJobsSummary(),
+      totalJobs: jobs.size,
+    });
   }
 
   return serveStatic(req, res);

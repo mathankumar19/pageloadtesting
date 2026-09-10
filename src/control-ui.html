@@ -87,6 +87,7 @@
   </div>
 
   <button id="run" disabled>Start scan</button>
+  <div id="others" style="margin-top:12px;font-size:12px;color:#666;" hidden></div>
   <div id="status"></div>
   <pre id="log"></pre>
   <a id="openDash" href="/" hidden>Open updated dashboard →</a>
@@ -97,11 +98,23 @@
   const DELAY_SECS = 12;         // default AUDIT_DELAY_MS locally
 
   const config = await fetch('/api/config').then(r => r.json());
-  const { sites, presets: availablePresets, alreadyRunning, runCount } = config;
+  const { sites, presets: availablePresets, runningJobs = [], runCount } = config;
 
   if (typeof runCount === 'number') {
     document.getElementById('navRunCount').textContent = `(${runCount})`;
   }
+
+  const othersEl = document.getElementById('others');
+  function showOthers(list) {
+    if (!list || list.length === 0) { othersEl.hidden = true; return; }
+    othersEl.hidden = false;
+    const parts = list.map(j => {
+      const args = (j.args || []).slice(1).join(' ') || '(all)';
+      return `<code style="background:rgba(127,127,127,0.15);padding:1px 6px;border-radius:4px;">${args}</code>`;
+    });
+    othersEl.innerHTML = `${list.length} scan${list.length===1?'':'s'} running in other tab${list.length===1?'':'s'}: ${parts.join(' ')}`;
+  }
+  showOthers(runningJobs);
 
   const brands    = [...new Set(sites.map(s => s.name))];
   const pages     = [...new Set(sites.map(s => s.page))];
@@ -210,11 +223,12 @@
       return;
     }
     statusEl.textContent = `Running (job ${body.id})…`;
-    stream();
+    runBtn.dataset.jobId = body.id;
+    stream(body.id);
   }
 
-  function stream() {
-    const ev = new EventSource('/api/stream');
+  function stream(jobId) {
+    const ev = new EventSource('/api/stream?id=' + encodeURIComponent(jobId));
     ev.addEventListener('log', (e) => appendLog(e.data));
     ev.addEventListener('done', (e) => {
       const payload = JSON.parse(e.data);
@@ -242,12 +256,15 @@
 
   runBtn.addEventListener('click', startRun);
 
-  if (alreadyRunning) {
-    statusEl.textContent = 'A scan is already in progress — attaching to its log…';
-    runBtn.dataset.busy = '1';
-    for (const line of alreadyRunning.log) appendLog(line);
-    stream();
-  }
+  // Refresh "other tabs" indicator every 5s so it reflects parallel activity.
+  setInterval(async () => {
+    try {
+      const s = await fetch('/api/status').then(r => r.json());
+      // Don't count this tab's own in-flight job as "other".
+      const mine = runBtn.dataset.jobId;
+      showOthers((s.running || []).filter(j => j.id !== mine));
+    } catch {}
+  }, 5000);
 
   refresh();
 })();
