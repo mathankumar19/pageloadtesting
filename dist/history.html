@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lighthouse Reports — History</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 32px; max-width: 1400px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .nav { color: #666; margin-bottom: 4px; font-size: 13px; }
+  .nav a { color: #0366d6; text-decoration: none; }
+  .nav a:hover { text-decoration: underline; }
+  .nav .sep { color: #ccc; margin: 0 8px; }
+  .meta { color: #666; margin-bottom: 24px; font-size: 13px; }
+  .fail { color: #b00020; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  thead th { text-align: left; background: #f5f5f5; padding: 10px 12px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #333; border-bottom: 2px solid #ddd; position: sticky; top: 0; }
+  thead th.group { background: #ececec; text-align: center; border-left: 1px solid #ddd; }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid #eee; }
+  tbody tr:hover { background: rgba(0,0,0,0.02); }
+  td.name { font-weight: 600; }
+  td.page { font-weight: 500; text-transform: capitalize; color: #333; }
+  td.lang { color: #666; text-transform: uppercase; font-size: 12px; }
+  td.url a { color: #0366d6; text-decoration: none; word-break: break-all; }
+  td.url a:hover { text-decoration: underline; }
+  td.score { text-align: center; font-weight: 700; font-size: 15px; border-left: 1px solid #eee; }
+  td.score.good { color: #0a7c2f; }
+  td.score.avg  { color: #b26a00; }
+  td.score.poor { color: #c62828; }
+  td.score.na   { color: #999; }
+  td.metric { text-align: right; color: #444; font-size: 13px; }
+  td.link { white-space: nowrap; }
+  td.link a { color: #0366d6; text-decoration: none; font-size: 13px; margin-right: 6px; }
+  td.link a:hover { text-decoration: underline; }
+  td.link a.pdf-link { color: #6a3d99; }
+  button.pdf-btn { background: #f1f3f5; border: 1px solid #d4d4d8; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; color: #333; margin-left: 8px; }
+  button.pdf-btn:hover { background: #e8ebee; }
+  @media print {
+    body { padding: 12px; max-width: none; color: #000; background: #fff; }
+    .nav, button.pdf-btn, .pdf-link { display: none !important; }
+    a[href] { color: inherit; text-decoration: none; }
+    thead th { position: static; background: #f5f5f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead th.group { background: #ececec !important; }
+    tbody tr:hover { background: transparent; }
+    tbody td { padding: 6px 8px; }
+    td.score { font-size: 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    td.url a { color: inherit; word-break: break-all; }
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0e0e10; color: #e6e6e6; }
+    .nav, .meta { color: #999; }
+    .nav .sep { color: #444; }
+    .nav a, td.url a, td.link a { color: #6cb6ff; }
+    thead th { background: #1a1a1d; color: #ccc; border-bottom-color: #333; }
+    thead th.group { background: #202024; }
+    tbody td { border-bottom-color: #222; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    td.page { color: #ddd; }
+    td.score.good { color: #4cd07d; }
+    td.score.avg  { color: #f0b850; }
+    td.score.poor { color: #ff6b6b; }
+    td.score.na   { color: #666; }
+    td.metric { color: #bbb; }
+  }
+</style>
+</head>
+<body>
+  <h1>Lighthouse Reports — History</h1>
+  <div class="nav"><a href="control">Control</a><span class="sep">·</span><b>All runs (8)</b><span class="sep">·</span><a href="index.html">Latest</a><button type="button" class="pdf-btn" onclick="window.print()">Download PDF</button></div>
+  <div class="meta">8 completed run(s), newest first.</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Run ID</th>
+        <th>Started</th>
+        <th>Duration</th>
+        <th style="text-align:right">Sites</th>
+        <th style="text-align:center">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    <tr>
+      <td class="name"><a href="runs/2026-09-10_1205/index.html">2026-09-10_1205</a> <b style="color:#0a7c2f">(latest)</b></td>
+      <td>9/10/2026, 12:05:18 PM</td>
+      <td>21m 48s</td>
+      <td class="metric">12</td>
+      <td class="score good">ok</td>
+    </tr>
+    <tr>
+      <td class="name"><a href="runs/2026-09-10_1133/index.html">2026-09-10_1133</a></td>
+      <td>9/10/2026, 11:33:29 AM</td>
+      <td>19s</td>
+      <td class="metric">1</td>
+      <td class="score good">ok</td>
+    </tr>
+    <tr>
+      <td class="name"><a href="runs/2026-09-10_1132/index.html">2026-09-10_1132</a></td>
+      <td>9/10/2026, 11:32:33 AM</td>
+      <td>21s</td>
+      <td class="metric">1</td>
+      <td class="score good">ok</td>
+    </tr>
+    <tr>
+      <td class="name"><a href="runs/2026-09-09_2251/index.html">2026-09-09_2251</a></td>
+      <td>9/9/2026, 10:51:42 PM</td>
+      <td>1m 1s</td>
+      <td class="metric">1</td>
+      <td class="score good">ok</td>
+    </tr>
+    <tr>
+      <td class="name"><a href="runs/2026-09-09_2202/index.html">2026-09-09_2202</a></td>
+      <td>9/9/2026, 10:02:00 PM</td>
+      <td>7m 22s</td>
+      <td class="metric">6</td>
+      <td class="score good">ok</td>
+    </tr>
+    <tr>
+      <td class="name"><a href="runs/2026-09-09_2039/index.html">2026-09-09_2039</a></td>
+      <td>9/9/2026, 8:39:00 PM</td>
+      <td>46m 4s</td>
+      <td class="metric">18</td>
+      <td class="score good">ok</td>
+    </tr>
+    <tr>
+      <td class="name"><a href="runs/2026-09-09_2015/index.html">2026-09-09_2015</a></td>
+      <td>9/9/2026, 8:15:55 PM</td>
+      <td>5m 3s</td>
+      <td class="metric">2</td>
+      <td class="score good">ok</td>
+    </tr>
+    <tr>
+      <td class="name"><a href="runs/2026-09-09_2004/index.html">2026-09-09_2004</a></td>
+      <td>9/9/2026, 8:04:38 PM</td>
+      <td>5m 11s</td>
+      <td class="metric">2</td>
+      <td class="score good">ok</td>
+    </tr>
+    </tbody>
+  </table>
+  
+<script>
+(() => {
+  // The per-report /api/pdf endpoint only exists when the local dev server is running.
+  // On any other host (e.g. a Netlify deploy of dist/), hide the PDF ↓ links.
+  const isLocal = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname) || location.hostname.endsWith('.local');
+  if (!isLocal) {
+    for (const el of document.querySelectorAll('[data-pdf-report]')) el.remove();
+  }
+})();
+</script>
+
+</body>
+</html>
