@@ -1,5 +1,5 @@
 node_modules/
-reports/
+/reports/
 .cache/
 .DS_Store
 
