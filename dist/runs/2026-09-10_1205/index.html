@@ -190,10 +190,18 @@
 <script>
 (() => {
   // The per-report /api/pdf endpoint only exists when the local dev server is running.
-  // On any other host (e.g. a Netlify deploy of dist/), hide the PDF ↓ links.
+  // On any other host (e.g. a Netlify deploy of dist/), fall back to window.print()
+  // so the link still works — it prints the current dashboard as a PDF.
   const isLocal = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname) || location.hostname.endsWith('.local');
   if (!isLocal) {
-    for (const el of document.querySelectorAll('[data-pdf-report]')) el.remove();
+    for (const el of document.querySelectorAll('[data-pdf-report]')) {
+      el.setAttribute('href', '#');
+      el.setAttribute('title', 'Download dashboard as PDF');
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.print();
+      });
+    }
   }
 })();
 </script>
