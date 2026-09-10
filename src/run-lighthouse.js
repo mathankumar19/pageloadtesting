@@ -1,10 +1,12 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as chromeLauncher from 'chrome-launcher';
 import lighthouse from 'lighthouse';
 import desktopConfig from 'lighthouse/core/config/desktop-config.js';
+
+import { loadSites } from './load-sites.js';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -45,20 +47,6 @@ async function resolveChromePath() {
   }
 }
 
-async function loadSites() {
-  const raw = await readFile(join(projectRoot, 'sites.json'), 'utf8');
-  const sites = JSON.parse(raw);
-  if (!Array.isArray(sites) || sites.length === 0) {
-    throw new Error('sites.json must be a non-empty array');
-  }
-  for (const [i, s] of sites.entries()) {
-    if (!s.name || !s.language || !s.page || !s.url) {
-      throw new Error(`sites.json entry ${i} is missing name/language/page/url`);
-    }
-  }
-  return sites;
-}
-
 function filterSitesByNames(sites, requestedNames) {
   if (requestedNames.length === 0) return sites;
   const wanted = new Set(requestedNames.map((n) => n.toLowerCase()));
@@ -72,12 +60,14 @@ function filterSitesByNames(sites, requestedNames) {
 }
 
 const KNOWN_BOOL_FLAGS = new Set(['--mobile', '--desktop']);
-const KNOWN_VALUE_FLAGS = new Set(['--page']);
+const KNOWN_VALUE_FLAGS = new Set(['--page', '--lang']);
 
 function parseCliArgs(argv) {
   const brands = [];
   const presetFlags = new Set();
   const pageFilters = new Set();
+  const langFilters = new Set();
+  const valueTargets = { '--page': pageFilters, '--lang': langFilters };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) {
@@ -99,15 +89,16 @@ function parseCliArgs(argv) {
           throw new Error(`Flag ${flagName} requires a value (e.g. ${flagName} home)`);
         }
       }
+      const target = valueTargets[flagName];
       for (const v of value.split(',')) {
         const trimmed = v.trim();
-        if (trimmed) pageFilters.add(trimmed.toLowerCase());
+        if (trimmed) target.add(trimmed.toLowerCase());
       }
     } else {
-      throw new Error(`Unknown flag: ${flagName}. Known flags: --mobile, --desktop, --page`);
+      throw new Error(`Unknown flag: ${flagName}. Known flags: --mobile, --desktop, --page, --lang`);
     }
   }
-  return { brands, presetFlags, pageFilters };
+  return { brands, presetFlags, pageFilters, langFilters };
 }
 
 function filterPresets(presets, presetFlags) {
@@ -124,6 +115,17 @@ function filterSitesByPages(sites, pageFilters) {
     throw new Error(`Unknown page(s): ${unknown.join(', ')}. Available: ${availList}`);
   }
   return sites.filter((s) => pageFilters.has(s.page.toLowerCase()));
+}
+
+function filterSitesByLanguages(sites, langFilters) {
+  if (langFilters.size === 0) return sites;
+  const available = new Set(sites.map((s) => s.language.toLowerCase()));
+  const unknown = [...langFilters].filter((l) => !available.has(l));
+  if (unknown.length) {
+    const availList = [...available].sort().join(', ');
+    throw new Error(`Unknown language(s): ${unknown.join(', ')}. Available: ${availList}`);
+  }
+  return sites.filter((s) => langFilters.has(s.language.toLowerCase()));
 }
 
 async function launchChrome(chromePath, preset) {
@@ -209,10 +211,11 @@ async function auditWithRetries({ site, preset, chromePath, label }) {
 }
 
 async function main() {
-  const { brands, presetFlags, pageFilters } = parseCliArgs(process.argv.slice(2));
-  const allSites = await loadSites();
+  const { brands, presetFlags, pageFilters, langFilters } = parseCliArgs(process.argv.slice(2));
+  const allSites = await loadSites(join(projectRoot, 'sites.json'));
   const brandFiltered = filterSitesByNames(allSites, brands);
-  const sites = filterSitesByPages(brandFiltered, pageFilters);
+  const pageFiltered = filterSitesByPages(brandFiltered, pageFilters);
+  const sites = filterSitesByLanguages(pageFiltered, langFilters);
   const presets = filterPresets(PRESETS, presetFlags);
   if (sites.length === 0) {
     throw new Error('No entries remain after filters. Check your brand and --page values against sites.json.');
@@ -226,10 +229,13 @@ async function main() {
     console.log(`Brand filter:  ${selected}  (${sites.length}/${allSites.length} entries)`);
   }
   if (pageFilters.size) {
-    console.log(`Page filter:   ${[...pageFilters].join(', ')}`);
+    console.log(`Page filter:    ${[...pageFilters].join(', ')}`);
+  }
+  if (langFilters.size) {
+    console.log(`Lang filter:    ${[...langFilters].join(', ')}`);
   }
   if (presetFlags.size) {
-    console.log(`Preset filter: ${presets.map((p) => p.name).join(', ')}`);
+    console.log(`Preset filter:  ${presets.map((p) => p.name).join(', ')}`);
   }
   console.log();
 

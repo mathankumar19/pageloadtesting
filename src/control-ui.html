@@ -72,6 +72,11 @@
   </section>
 
   <section class="filter">
+    <h3>Languages <span class="quicklinks"><a href="#" data-all="lang">All</a><a href="#" data-none="lang">None</a></span></h3>
+    <div class="checkboxes" id="languages"></div>
+  </section>
+
+  <section class="filter">
     <h3>Presets <span class="quicklinks"><a href="#" data-all="preset">All</a></span></h3>
     <div class="checkboxes" id="presets"></div>
   </section>
@@ -98,8 +103,9 @@
     document.getElementById('navRunCount').textContent = `(${runCount})`;
   }
 
-  const brands  = [...new Set(sites.map(s => s.name))];
-  const pages   = [...new Set(sites.map(s => s.page))];
+  const brands    = [...new Set(sites.map(s => s.name))];
+  const pages     = [...new Set(sites.map(s => s.page))];
+  const languages = [...new Set(sites.map(s => s.language))];
 
   function makeBoxes(container, values, group) {
     for (const v of values) {
@@ -110,9 +116,10 @@
     }
   }
 
-  makeBoxes(document.getElementById('brands'),  brands,  'brand');
-  makeBoxes(document.getElementById('pages'),   pages,   'page');
-  makeBoxes(document.getElementById('presets'), availablePresets, 'preset');
+  makeBoxes(document.getElementById('brands'),    brands,    'brand');
+  makeBoxes(document.getElementById('pages'),     pages,     'page');
+  makeBoxes(document.getElementById('languages'), languages, 'lang');
+  makeBoxes(document.getElementById('presets'),   availablePresets, 'preset');
 
   function selectedValues(group) {
     return [...document.querySelectorAll(`input[name="${group}"]:checked`)].map(el => el.value);
@@ -126,13 +133,14 @@
 
     const b = selectedValues('brand');
     const p = selectedValues('page');
+    const lg = selectedValues('lang');
     const pr = selectedValues('preset');
-    const bSet = new Set(b), pSet = new Set(p);
-    const filtered = sites.filter(s => bSet.has(s.name) && pSet.has(s.page));
+    const bSet = new Set(b), pSet = new Set(p), lgSet = new Set(lg);
+    const filtered = sites.filter(s => bSet.has(s.name) && pSet.has(s.page) && lgSet.has(s.language));
     const audits = filtered.length * pr.length;
     document.getElementById('auditCount').textContent = audits;
     document.getElementById('breakdown').textContent =
-      `(${b.length} brand${b.length===1?'':'s'} × ${p.length} page${p.length===1?'':'s'} × ${pr.length} preset${pr.length===1?'':'s'})`;
+      `(${b.length} brand${b.length===1?'':'s'} × ${p.length} page${p.length===1?'':'s'} × ${lg.length} lang${lg.length===1?'':'s'} × ${pr.length} preset${pr.length===1?'':'s'})`;
     const totalSecs = audits > 0 ? audits * AUDIT_SECS + (audits - 1) * DELAY_SECS : 0;
     document.getElementById('timeEst').textContent =
       audits === 0 ? '—' : totalSecs < 90 ? `~${Math.round(totalSecs)}s` : `~${Math.round(totalSecs / 60)} min`;
@@ -171,12 +179,14 @@
 
   async function startRun() {
     const filters = {
-      brands:  selectedValues('brand'),
-      pages:   selectedValues('page'),
-      presets: selectedValues('preset'),
+      brands:    selectedValues('brand'),
+      pages:     selectedValues('page'),
+      languages: selectedValues('lang'),
+      presets:   selectedValues('preset'),
     };
-    if (filters.brands.length === brands.length) filters.brands = [];
-    if (filters.pages.length === pages.length) filters.pages = [];
+    if (filters.brands.length === brands.length)          filters.brands    = [];
+    if (filters.pages.length === pages.length)            filters.pages     = [];
+    if (filters.languages.length === languages.length)    filters.languages = [];
     if (filters.presets.length === availablePresets.length) filters.presets = [];
 
     logEl.textContent = '';

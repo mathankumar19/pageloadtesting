@@ -37,15 +37,31 @@ function scoreClass(score) {
   return 'poor';
 }
 
-function cell(preset, runId, linkBase) {
-  if (!preset) return '<td class="score na">—</td><td class="metric">—</td><td class="metric">—</td><td class="link">—</td>';
-  if (preset.error) return `<td class="score na" colspan="3" title="${escapeHtml(preset.error)}">error</td><td class="link">—</td>`;
+function scoreCell(v) {
+  return v == null
+    ? '<td class="score na">—</td>'
+    : `<td class="score ${scoreClass(v)}">${v}</td>`;
+}
+
+function cell(preset, runId, linkBase, reportPathBase) {
+  if (!preset) {
+    return '<td class="score na">—</td>'.repeat(4) + '<td class="link">—</td>';
+  }
+  if (preset.error) {
+    return `<td class="score na" colspan="4" title="${escapeHtml(preset.error)}">error</td><td class="link">—</td>`;
+  }
   const link = `${linkBase}${runId}/${escapeHtml(preset.file)}`;
+  const reportPath = `${reportPathBase}${runId}/${preset.file}`;
+  const pdfHref = `/api/pdf?path=${encodeURIComponent(reportPath)}`;
   return (
-    `<td class="score ${scoreClass(preset.perf)}">${preset.perf}</td>` +
-    `<td class="metric">${escapeHtml(preset.lcp ?? '—')}</td>` +
-    `<td class="metric">${escapeHtml(preset.cls ?? '—')}</td>` +
-    `<td class="link"><a href="${link}" target="_blank" rel="noopener">open ↗</a></td>`
+    scoreCell(preset.perf) +
+    scoreCell(preset.a11y) +
+    scoreCell(preset.bestPractices) +
+    scoreCell(preset.seo) +
+    `<td class="link">` +
+      `<a href="${link}" target="_blank" rel="noopener">open ↗</a>` +
+      ` <a href="${pdfHref}" class="pdf-link" data-pdf-report>PDF ↓</a>` +
+    `</td>`
   );
 }
 
@@ -75,8 +91,22 @@ const BASE_CSS = `
   td.score.poor { color: #c62828; }
   td.score.na   { color: #999; }
   td.metric { text-align: right; color: #444; font-size: 13px; }
-  td.link a { color: #0366d6; text-decoration: none; font-size: 13px; }
+  td.link a { color: #0366d6; text-decoration: none; font-size: 13px; margin-right: 6px; }
   td.link a:hover { text-decoration: underline; }
+  td.link a.pdf-link { color: #6a3d99; }
+  button.pdf-btn { background: #f1f3f5; border: 1px solid #d4d4d8; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; color: #333; margin-left: 8px; }
+  button.pdf-btn:hover { background: #e8ebee; }
+  @media print {
+    body { padding: 12px; max-width: none; color: #000; background: #fff; }
+    .nav, button.pdf-btn, .pdf-link { display: none !important; }
+    a[href] { color: inherit; text-decoration: none; }
+    thead th { position: static; background: #f5f5f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead th.group { background: #ececec !important; }
+    tbody tr:hover { background: transparent; }
+    tbody td { padding: 6px 8px; }
+    td.score { font-size: 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    td.url a { color: inherit; word-break: break-all; }
+  }
   @media (prefers-color-scheme: dark) {
     body { background: #0e0e10; color: #e6e6e6; }
     .nav, .meta { color: #999; }
@@ -102,22 +132,37 @@ function navBar({ active, depth, runCount }) {
     { key: 'history', label: `All runs (${runCount})`, href: `${prefix}history.html` },
     { key: 'latest',  label: 'Latest',               href: `${prefix}index.html` },
   ];
-  const html = items
+  const linksHtml = items
     .map((it) => (it.key === active ? `<b>${it.label}</b>` : `<a href="${it.href}">${it.label}</a>`))
     .join('<span class="sep">·</span>');
-  return `<div class="nav">${html}</div>`;
+  return `<div class="nav">${linksHtml}<button type="button" class="pdf-btn" onclick="window.print()">Download PDF</button></div>`;
 }
+
+const PDF_LINK_SCRIPT = `
+<script>
+(() => {
+  // The per-report /api/pdf endpoint only exists when the local dev server is running.
+  // On any other host (e.g. a Netlify deploy of dist/), hide the PDF ↓ links.
+  const isLocal = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname) || location.hostname.endsWith('.local');
+  if (!isLocal) {
+    for (const el of document.querySelectorAll('[data-pdf-report]')) el.remove();
+  }
+})();
+</script>
+`;
 
 function renderRunDashboard(summary, opts) {
   const { linkBase, active, depth, runCount } = opts;
+  // PDF endpoint is server-hosted, always addressed by path-relative-to-dist.
+  const reportPathBase = 'reports/';
   const rows = summary.sites.map((s) => `
     <tr>
       <td class="name">${escapeHtml(s.name)}</td>
       <td class="page">${escapeHtml(s.page ?? '—')}</td>
       <td class="lang">${escapeHtml(s.language)}</td>
       <td class="url"><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.url)}</a></td>
-      ${cell(s.mobile, summary.runId, linkBase)}
-      ${cell(s.desktop, summary.runId, linkBase)}
+      ${cell(s.mobile, summary.runId, linkBase, reportPathBase)}
+      ${cell(s.desktop, summary.runId, linkBase, reportPathBase)}
     </tr>`).join('');
 
   const failedCount = summary.failures?.length ?? 0;
@@ -146,17 +191,18 @@ function renderRunDashboard(summary, opts) {
         <th rowspan="2">Page</th>
         <th rowspan="2">Lang</th>
         <th rowspan="2">URL</th>
-        <th class="group" colspan="4">Mobile</th>
-        <th class="group" colspan="4">Desktop</th>
+        <th class="group" colspan="5">Mobile</th>
+        <th class="group" colspan="5">Desktop</th>
       </tr>
       <tr>
-        <th class="group">Perf</th><th class="group">LCP</th><th class="group">CLS</th><th class="group">Report</th>
-        <th class="group">Perf</th><th class="group">LCP</th><th class="group">CLS</th><th class="group">Report</th>
+        <th class="group" title="Performance">Perf</th><th class="group" title="Accessibility">Access.</th><th class="group" title="Best Practices">Best Prac.</th><th class="group" title="SEO">SEO</th><th class="group">Report</th>
+        <th class="group" title="Performance">Perf</th><th class="group" title="Accessibility">Access.</th><th class="group" title="Best Practices">Best Prac.</th><th class="group" title="SEO">SEO</th><th class="group">Report</th>
       </tr>
     </thead>
     <tbody>${rows}
     </tbody>
   </table>
+  ${PDF_LINK_SCRIPT}
 </body>
 </html>
 `;
@@ -215,6 +261,7 @@ function renderHistoryPage(runs) {
     <tbody>${rows}
     </tbody>
   </table>
+  ${PDF_LINK_SCRIPT}
 </body>
 </html>
 `;

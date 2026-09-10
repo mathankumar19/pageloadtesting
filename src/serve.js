@@ -4,6 +4,8 @@ import { dirname, join, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
+import { loadSites } from './load-sites.js';
+
 const PORT = Number(process.env.PORT ?? 5005);
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -51,7 +53,7 @@ async function readJsonBody(req, limit = 64 * 1024) {
   });
 }
 
-function buildRunArgs({ brands = [], pages = [], presets = [] }) {
+function buildRunArgs({ brands = [], pages = [], languages = [], presets = [] }) {
   const args = ['src/run-lighthouse.js'];
   for (const b of brands) args.push(String(b));
   for (const p of presets) {
@@ -59,6 +61,9 @@ function buildRunArgs({ brands = [], pages = [], presets = [] }) {
   }
   if (pages.length) {
     args.push('--page', pages.map(String).join(','));
+  }
+  if (languages.length) {
+    args.push('--lang', languages.map(String).join(','));
   }
   return args;
 }
@@ -176,7 +181,7 @@ async function countBuiltRuns() {
 
 async function handleConfig(res) {
   try {
-    const sites = JSON.parse(await readFile(sitesJsonPath, 'utf8'));
+    const sites = await loadSites(sitesJsonPath);
     const alreadyRunning = currentJob && !currentJob.done
       ? { id: currentJob.id, args: currentJob.args, log: currentJob.log.slice() }
       : null;
@@ -198,6 +203,7 @@ async function handleRun(req, res) {
   const result = startRun({
     brands: Array.isArray(body.brands) ? body.brands : [],
     pages: Array.isArray(body.pages) ? body.pages : [],
+    languages: Array.isArray(body.languages) ? body.languages : [],
     presets: Array.isArray(body.presets) ? body.presets : [],
   });
   if (!result.ok) return json(res, 409, { error: result.error });
@@ -215,6 +221,57 @@ async function resolveStaticFile(urlPath) {
     return filePath;
   } catch {
     return null;
+  }
+}
+
+let pdfBrowserPromise = null;
+async function getPdfBrowser() {
+  if (pdfBrowserPromise) return pdfBrowserPromise;
+  pdfBrowserPromise = (async () => {
+    const puppeteer = (await import('puppeteer')).default;
+    return puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+    });
+  })();
+  return pdfBrowserPromise;
+}
+
+async function handlePdf(req, res, urlWithQuery) {
+  const q = urlWithQuery.split('?')[1] ?? '';
+  const params = new URLSearchParams(q);
+  const rel = params.get('path');
+  if (!rel) return json(res, 400, { error: 'missing path' });
+
+  const target = await resolveStaticFile(rel);
+  if (!target) return json(res, 404, { error: 'file not found under dist/' });
+
+  const relFromDist = target.slice(distRoot.length).replace(/^\/+/, '');
+  const pageUrl = `http://127.0.0.1:${PORT}/${relFromDist}`;
+
+  let page;
+  try {
+    const browser = await getPdfBrowser();
+    page = await browser.newPage();
+    await page.emulateMediaType('print');
+    await page.goto(pageUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '12mm', right: '10mm', bottom: '12mm', left: '10mm' },
+    });
+    const filename = relFromDist.replace(/[\/\\]/g, '_').replace(/\.html$/, '') + '.pdf';
+    res.writeHead(200, {
+      'content-type': 'application/pdf',
+      'content-length': pdf.length,
+      'content-disposition': `attachment; filename="${filename}"`,
+    });
+    res.end(pdf);
+  } catch (e) {
+    if (!res.headersSent) json(res, 500, { error: `PDF render failed: ${e.message}` });
+    else try { res.end(); } catch {}
+  } finally {
+    if (page) try { await page.close(); } catch {}
   }
 }
 
@@ -253,6 +310,7 @@ const server = createServer(async (req, res) => {
   if (url === '/api/config' && req.method === 'GET') return handleConfig(res);
   if (url === '/api/run' && req.method === 'POST') return handleRun(req, res);
   if (url === '/api/stream' && req.method === 'GET') return handleSSE(req, res);
+  if (url === '/api/pdf' && req.method === 'GET') return handlePdf(req, res, req.url ?? '/');
   if (url === '/api/status' && req.method === 'GET') {
     return json(res, 200, currentJob
       ? { id: currentJob.id, done: currentJob.done, exitCode: currentJob.exitCode, lines: currentJob.log.length }
@@ -261,6 +319,17 @@ const server = createServer(async (req, res) => {
 
   return serveStatic(req, res);
 });
+
+async function shutdown(signal) {
+  console.log(`\n${signal} received — closing server${pdfBrowserPromise ? ' and Chrome' : ''}`);
+  server.close();
+  if (pdfBrowserPromise) {
+    try { const b = await pdfBrowserPromise; await b.close(); } catch {}
+  }
+  process.exit(0);
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 server.listen(PORT, () => {
   console.log(`Dashboard served at http://localhost:${PORT}/`);

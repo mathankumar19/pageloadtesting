@@ -16,31 +16,36 @@ npm install
 
 ## Configure sites
 
-Edit `sites.json` — an array of the URLs to audit. Each entry needs all four fields:
+`sites.json` supports two shapes.
+
+**Compact (recommended)** — declare each URL template once, list the languages once at the top, and use `{lang}` as a placeholder in the URL:
+
+```json
+{
+  "languages": ["en", "ar"],
+  "sites": [
+    { "name": "max", "page": "home",       "url": "https://www.maxfashion.com/ae/{lang}" },
+    { "name": "max", "page": "department", "url": "https://www.maxfashion.com/ae/{lang}/department/women" }
+  ]
+}
+```
+
+The loader expands every entry into one concrete audit per language — so `2` languages × `N` entries = `2N` audits before the mobile/desktop split. Per-entry `languages: [...]` overrides the top-level default (useful for pages that only exist in one locale).
+
+**Legacy (flat array)** — one row per language, no placeholder:
 
 ```json
 [
-  { "name": "max", "language": "en", "page": "home",       "url": "https://www.maxfashion.com/ae/en" },
-  { "name": "max", "language": "en", "page": "department", "url": "https://www.maxfashion.com/ae/en/department/women" }
+  { "name": "max", "language": "en", "page": "home", "url": "https://www.maxfashion.com/ae/en" },
+  { "name": "max", "language": "ar", "page": "home", "url": "https://www.maxfashion.com/ae/ar" }
 ]
 ```
 
-Every entry is audited twice (mobile + desktop), so N entries → 2N audits.
+Both shapes still require every concrete audit to have `name`, `language`, `page`, `url`. Every audit is run twice (mobile + desktop), so N concrete audits → 2N Lighthouse runs.
 
-`sites.json` is validated on startup — the file must be a non-empty array and every entry must have all four fields, or the run aborts before launching Chrome.
+`sites.json` is validated on startup — bad JSON, missing fields, multiple languages without a `{lang}` placeholder, or an empty list all abort the run before launching Chrome.
 
-**Grouping by brand** — the `name` field is your brand grouping (e.g. `max`, `centrepoint`, `homecentre`). Keep it consistent across all pages of the same brand so you can filter by brand at run time (see [Run one or more brands](#run-one-or-more-brands) below).
-
-Example — three brands in one file:
-
-```json
-[
-  { "name": "max",         "language": "en", "page": "home",       "url": "https://www.maxfashion.com/ae/en" },
-  { "name": "max",         "language": "en", "page": "department", "url": "https://www.maxfashion.com/ae/en/department/women" },
-  { "name": "centrepoint", "language": "en", "page": "home",       "url": "https://www.centrepointstores.com/ae/en" },
-  { "name": "homecentre",  "language": "en", "page": "home",       "url": "https://www.homecentre.com/ae/en" }
-]
-```
+**Grouping by brand** — the `name` field is your brand grouping (e.g. `max`, `centrepoint`, `homecentre`). Keep it consistent across all pages of the same brand so you can filter by brand at run time (see [Choose brands, pages and/or presets at run time](#choose-brands-pages-andor-presets-at-run-time) below).
 
 ## What gets measured
 
@@ -48,12 +53,12 @@ Each audit captures the four Lighthouse category scores plus three Core Web Vita
 
 | Field | Source | Shown on dashboard? |
 |---|---|---|
-| `perf` | Performance score (0–100) | ✅ |
-| `a11y` | Accessibility score (0–100) | stored in `summary.json` only |
-| `bestPractices` | Best Practices score (0–100) | stored in `summary.json` only |
-| `seo` | SEO score (0–100) | stored in `summary.json` only |
-| `lcp` | Largest Contentful Paint (display value, e.g. `2.1 s`) | ✅ |
-| `cls` | Cumulative Layout Shift (display value) | ✅ |
+| `perf` | Performance score (0–100) | ✅ (column "Perf") |
+| `a11y` | Accessibility score (0–100) | ✅ (column "Access.") |
+| `bestPractices` | Best Practices score (0–100) | ✅ (column "Best Prac.") |
+| `seo` | SEO score (0–100) | ✅ (column "SEO") |
+| `lcp` | Largest Contentful Paint (display value, e.g. `2.1 s`) | stored in `summary.json` only |
+| `cls` | Cumulative Layout Shift (display value) | stored in `summary.json` only |
 | `tbt` | Total Blocking Time (display value) | stored in `summary.json` only |
 
 Mobile and desktop runs use distinct emulated User-Agents (Pixel 7 / macOS Chrome 131) and pass anti-automation Chrome flags, which reduces — but does not eliminate — the chance of a site returning a bot-detection page.
@@ -86,39 +91,44 @@ npm run report            # runs Lighthouse audits
 npm run dashboard         # rebuilds dist/ from the latest run
 ```
 
-### Choose brands, pages and/or presets at run time
+### Choose brands, pages, languages and/or presets at run time
 
-`npm run report` accepts three independent filters after `--`:
+`npm run report` accepts four independent filters after `--`:
 
 - **Brand filter** — any positional argument is treated as a brand name (matched case-insensitively against the `name` field in `sites.json`). No positional args = all brands.
 - **Page filter** — `--page <value>` restricts to specific pages (matched case-insensitively against the `page` field). Can be repeated (`--page home --page PDP`), comma-separated (`--page home,PDP`), or use `=` (`--page=home`). No flag = all pages.
+- **Language filter** — `--lang <value>` restricts to specific languages (matched case-insensitively against the `language` field). Same syntax as `--page`: `--lang en`, `--lang en,ar`, `--lang=en`, repeated. No flag = all languages.
 - **Preset filter** — `--mobile` and/or `--desktop` restrict the run to those presets. No flag = both presets (same as passing both).
 
-Filters are combined with AND — e.g. `max --page cart --mobile` runs "max's cart page on mobile only" = 1 audit. Args can appear in any order.
+Filters are combined with AND — e.g. `max --page cart --lang ar --mobile` runs "max's cart page, Arabic, mobile only" = 1 audit. Args can appear in any order.
 
 ```bash
 # Brand only
-npm run report                                    # all brands × all pages × mobile + desktop  (default)
-npm run report -- max                             # just max
-npm run report -- max centrepoint                 # max + centrepoint
+npm run report                                       # all brands × all pages × all langs × mobile + desktop  (default)
+npm run report -- max                                # just max
+npm run report -- max centrepoint                    # max + centrepoint
 
 # Page only
-npm run report -- --page home                     # all brands × home only × mobile + desktop
-npm run report -- --page home,PDP                 # all brands × home + PDP
-npm run report -- --page home --page PDP          # same, repeated-flag form
+npm run report -- --page home                        # all brands × home × all langs × mobile + desktop
+npm run report -- --page home,PDP                    # comma-list
+npm run report -- --page home --page PDP             # same, repeated-flag form
+
+# Language only
+npm run report -- --lang en                          # everything, English only
+npm run report -- --lang ar                          # everything, Arabic only
 
 # Preset only
-npm run report -- --mobile                        # all brands × all pages × mobile only
-npm run report -- --desktop                       # all brands × all pages × desktop only
+npm run report -- --mobile                           # all brands × all pages × all langs × mobile only
+npm run report -- --desktop                          # all brands × all pages × all langs × desktop only
 
 # Any combination
-npm run report -- max --page cart --mobile        # 1 audit: max/cart/mobile
-npm run report -- max centrepoint --page home     # 4 audits: 2 brands × home × mobile+desktop
-npm run report -- --page PDP --mobile             # 3 audits: 3 brands × PDP × mobile only
+npm run report -- max --page cart --lang ar --mobile # 1 audit: max/cart/ar/mobile
+npm run report -- max centrepoint --page home --lang en   # 4 audits: 2 brands × home × en × mobile+desktop
+npm run report -- --page PDP --lang ar --mobile      # 6 audits: 6 brands × PDP × ar × mobile
 ```
 
-- Positional args, `--page` values, and preset flags are all case-insensitive (`--page pdp` matches `PDP`).
-- An unrecognised brand, page, or flag aborts the run and lists what's available.
+- Positional args, `--page`, `--lang` values, and preset flags are all case-insensitive (`--page pdp` matches `PDP`, `--lang EN` matches `en`).
+- An unrecognised brand, page, language, or flag aborts the run and lists what's available.
 - If the combined filters leave zero entries (e.g. `max --page nonexistent`), the run aborts with a hint.
 - The filter only affects `npm run report` — `npm run dashboard` always builds from whatever the latest completed run contains. Skipped presets show `—` in the dashboard.
 - `npm run build` runs the report unfiltered. For a filtered end-to-end build, run the steps separately:
@@ -270,6 +280,17 @@ All three page types share the same self-contained HTML — no JS, no external a
 - **Report links** — each cell has an "open ↗" link to the full Lighthouse HTML report
 
 Filenames in `reports/<timestamp>/` follow the pattern `<name>-<page>-<language>-<preset>.html`, with any character outside `[A-Za-z0-9._-]` replaced by `_`.
+
+### PDF export
+
+Every dashboard page (latest, per-run, history) has a **Download PDF** button in the top nav. It triggers the browser's print-to-PDF via `window.print()` with a print stylesheet that hides nav/buttons, strips link colors, and expands the table off its `1400px` cap so nothing gets clipped. Works everywhere the dashboard is hosted — localhost or Netlify.
+
+Individual Lighthouse HTML reports also have a **PDF ↓** link next to their **open ↗** link in each row. That one calls `GET /api/pdf?path=<path-relative-to-dist>` on the local dev server, which uses Puppeteer to render the report page to PDF (A4, print stylesheet, print backgrounds on) and streams it back as a download.
+
+- Requires `npm run serve` running locally (Netlify can't spawn a headless Chrome). The PDF ↓ links are auto-hidden by a small inline script when the page loads on any non-localhost host.
+- Takes ~4–6 seconds per report — one headless Chrome page per request. The Chrome instance is reused across requests within a session, so subsequent PDFs are faster.
+- Chrome is cleaned up on `Ctrl+C` / `SIGTERM`.
+- The download filename is derived from the report path — e.g. `reports/2026-09-09_2202/max-home-en-mobile.html` → `reports_2026-09-09_2202_max-home-en-mobile.pdf`.
 
 ## Deploy to Netlify
 
