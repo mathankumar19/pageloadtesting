@@ -2,11 +2,14 @@ import { readFile, writeFile, mkdir, readdir, copyFile, stat } from 'node:fs/pro
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { loadSites } from './load-sites.js';
+
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const reportsRoot = join(projectRoot, 'reports');
 const distRoot = join(projectRoot, 'dist');
 const distReports = join(distRoot, 'reports');
 const distRuns = join(distRoot, 'runs');
+const sitesJsonPath = join(projectRoot, 'sites.json');
 
 async function findAllCompletedRuns() {
   const entries = await readdir(reportsRoot, { withFileTypes: true });
@@ -284,6 +287,201 @@ async function copyRunFolder(runId) {
   return true;
 }
 
+function renderStaticControlPage(sites, runCount) {
+  const brands    = [...new Set(sites.map(s => s.name))];
+  const pages     = [...new Set(sites.map(s => s.page))];
+  const languages = [...new Set(sites.map(s => s.language))];
+  const presets   = ['mobile', 'desktop'];
+  const inlineData = JSON.stringify({ sites, brands, pages, languages, presets });
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control · Lighthouse</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 32px; max-width: 1000px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .nav { color: #666; margin-bottom: 24px; font-size: 13px; }
+  .nav a { color: #0366d6; text-decoration: none; }
+  .nav a:hover { text-decoration: underline; }
+  .nav .sep { color: #ccc; margin: 0 8px; }
+  .banner { border: 1px solid #f0b850; background: #fff8e1; color: #7a5900; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+  .banner code { background: rgba(0,0,0,0.08); padding: 1px 6px; border-radius: 4px; font: 12px ui-monospace, "SF Mono", Consolas, monospace; }
+  section.filter { border: 1px solid #e4e4e7; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+  section.filter h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #555; display: flex; justify-content: space-between; align-items: center; }
+  .quicklinks { font-weight: 400; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .quicklinks a { color: #0366d6; text-decoration: none; margin-left: 8px; }
+  .quicklinks a:hover { text-decoration: underline; }
+  .checkboxes { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+  .checkboxes label { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #d4d4d8; border-radius: 6px; cursor: pointer; user-select: none; font-size: 13px; }
+  .checkboxes label.on { background: #eff6ff; border-color: #93c5fd; }
+  .checkboxes input { margin: 0; }
+  .estimate { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 16px; background: #f6f8fa; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+  .estimate b { font-size: 15px; }
+  .estimate .warn { color: #b26a00; }
+  .estimate .bad { color: #c62828; }
+  .cmd-row { display: flex; gap: 8px; align-items: stretch; }
+  pre#cmd { flex: 1; margin: 0; background: #0e0e10; color: #e6e6e6; border-radius: 8px; padding: 14px 16px; font: 13px/1.5 ui-monospace, "SF Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-word; overflow: auto; }
+  button#copy { background: #0366d6; color: #fff; border: 0; border-radius: 6px; padding: 0 18px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  button#copy:hover { background: #0357b8; }
+  button#copy.ok { background: #0a7c2f; }
+  #copyStatus { margin-top: 8px; font-size: 12px; color: #666; min-height: 16px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0e0e10; color: #e6e6e6; }
+    .nav, section.filter h3, #copyStatus { color: #999; }
+    .nav .sep { color: #444; }
+    .nav a, .quicklinks a { color: #6cb6ff; }
+    .banner { background: #2a2200; color: #f0d060; border-color: #6a5200; }
+    .banner code { background: rgba(255,255,255,0.08); }
+    section.filter { border-color: #2a2a2e; }
+    .checkboxes label { border-color: #2a2a2e; }
+    .checkboxes label.on { background: #17293a; border-color: #2b5c95; }
+    .estimate { background: #1a1a1d; }
+    .estimate .warn { color: #f0b850; }
+    .estimate .bad { color: #ff6b6b; }
+    pre#cmd { background: #000; }
+  }
+</style>
+</head>
+<body>
+  <h1>Plan a Lighthouse scan</h1>
+  <div class="nav">
+    <b>Control</b>
+    <span class="sep">·</span><a href="history.html">All runs (${runCount})</a>
+    <span class="sep">·</span><a href="index.html">Latest</a>
+  </div>
+
+  <div class="banner">
+    Scans run on your machine, not on this deployment. Pick filters below and copy the CLI command, then run it locally. To use the interactive runner, run <code>npm run serve</code> and open <code>http://localhost:5005/control</code>.
+  </div>
+
+  <section class="filter">
+    <h3>Brands <span class="quicklinks"><a href="#" data-all="brand">All</a><a href="#" data-none="brand">None</a></span></h3>
+    <div class="checkboxes" id="brands"></div>
+  </section>
+
+  <section class="filter">
+    <h3>Pages <span class="quicklinks"><a href="#" data-all="page">All</a><a href="#" data-none="page">None</a></span></h3>
+    <div class="checkboxes" id="pages"></div>
+  </section>
+
+  <section class="filter">
+    <h3>Languages <span class="quicklinks"><a href="#" data-all="lang">All</a><a href="#" data-none="lang">None</a></span></h3>
+    <div class="checkboxes" id="languages"></div>
+  </section>
+
+  <section class="filter">
+    <h3>Presets <span class="quicklinks"><a href="#" data-all="preset">All</a></span></h3>
+    <div class="checkboxes" id="presets"></div>
+  </section>
+
+  <div class="estimate">
+    <div>Selected: <b id="auditCount">—</b> audits &nbsp;<span id="breakdown"></span></div>
+    <div>Estimated: <b id="timeEst">—</b></div>
+  </div>
+
+  <div class="cmd-row">
+    <pre id="cmd">npm run report</pre>
+    <button id="copy" type="button">Copy</button>
+  </div>
+  <div id="copyStatus"></div>
+
+<script>
+(() => {
+  const AUDIT_SECS = 75;
+  const DELAY_SECS = 12;
+  const DATA = ${inlineData};
+  const { sites, brands, pages, languages, presets } = DATA;
+
+  function makeBoxes(container, values, group) {
+    for (const v of values) {
+      const id = group + '-' + v;
+      const label = document.createElement('label');
+      label.innerHTML = '<input type="checkbox" name="' + group + '" value="' + v + '" id="' + id + '" checked><span>' + v + '</span>';
+      container.appendChild(label);
+    }
+  }
+  makeBoxes(document.getElementById('brands'),    brands,    'brand');
+  makeBoxes(document.getElementById('pages'),     pages,     'page');
+  makeBoxes(document.getElementById('languages'), languages, 'lang');
+  makeBoxes(document.getElementById('presets'),   presets,   'preset');
+
+  const selectedValues = (group) =>
+    [...document.querySelectorAll('input[name="' + group + '"]:checked')].map(el => el.value);
+
+  function buildCommand(b, p, lg, pr) {
+    const parts = ['npm', 'run', 'report', '--'];
+    if (b.length && b.length !== brands.length) parts.push(...b);
+    for (const preset of pr) if (preset === 'mobile' || preset === 'desktop') parts.push('--' + preset);
+    if (p.length && p.length !== pages.length) parts.push('--page', p.join(','));
+    if (lg.length && lg.length !== languages.length) parts.push('--lang', lg.join(','));
+    if (parts.length === 4) return 'npm run report';
+    return parts.join(' ');
+  }
+
+  function refresh() {
+    for (const cb of document.querySelectorAll('.checkboxes input')) {
+      cb.closest('label').classList.toggle('on', cb.checked);
+    }
+    const b = selectedValues('brand');
+    const p = selectedValues('page');
+    const lg = selectedValues('lang');
+    const pr = selectedValues('preset');
+    const bSet = new Set(b), pSet = new Set(p), lgSet = new Set(lg);
+    const filtered = sites.filter(s => bSet.has(s.name) && pSet.has(s.page) && lgSet.has(s.language));
+    const audits = filtered.length * pr.length;
+    document.getElementById('auditCount').textContent = audits;
+    document.getElementById('breakdown').textContent =
+      '(' + b.length + ' brand' + (b.length===1?'':'s') + ' × ' +
+      p.length + ' page' + (p.length===1?'':'s') + ' × ' +
+      lg.length + ' lang' + (lg.length===1?'':'s') + ' × ' +
+      pr.length + ' preset' + (pr.length===1?'':'s') + ')';
+    const totalSecs = audits > 0 ? audits * AUDIT_SECS + (audits - 1) * DELAY_SECS : 0;
+    document.getElementById('timeEst').textContent =
+      audits === 0 ? '—' : totalSecs < 90 ? '~' + Math.round(totalSecs) + 's' : '~' + Math.round(totalSecs / 60) + ' min';
+    const est = document.querySelector('.estimate b#timeEst');
+    est.className = totalSecs > 15 * 60 ? 'bad' : totalSecs > 5 * 60 ? 'warn' : '';
+    document.getElementById('cmd').textContent = buildCommand(b, p, lg, pr);
+  }
+
+  document.querySelectorAll('.checkboxes input').forEach(cb => cb.addEventListener('change', refresh));
+  document.querySelectorAll('[data-all]').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('input[name="' + a.dataset.all + '"]').forEach(cb => cb.checked = true);
+    refresh();
+  }));
+  document.querySelectorAll('[data-none]').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('input[name="' + a.dataset.none + '"]').forEach(cb => cb.checked = false);
+    refresh();
+  }));
+
+  const copyBtn = document.getElementById('copy');
+  const copyStatus = document.getElementById('copyStatus');
+  copyBtn.addEventListener('click', async () => {
+    const text = document.getElementById('cmd').textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.classList.add('ok');
+      copyBtn.textContent = 'Copied';
+      copyStatus.textContent = 'Paste this into a terminal in your project folder.';
+      setTimeout(() => { copyBtn.classList.remove('ok'); copyBtn.textContent = 'Copy'; }, 1500);
+    } catch (e) {
+      copyStatus.textContent = 'Copy failed — select the command and copy manually.';
+    }
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>
+`;
+}
+
 async function main() {
   const runs = await findAllCompletedRuns();
   if (runs.length === 0) {
@@ -317,6 +515,14 @@ async function main() {
   });
   await writeFile(join(distRoot, 'index.html'), latestHtml);
   await writeFile(join(distRoot, 'history.html'), renderHistoryPage(runs));
+
+  try {
+    const sites = await loadSites(sitesJsonPath);
+    await writeFile(join(distRoot, 'control.html'), renderStaticControlPage(sites, runs.length));
+    console.log(`Built dist/control.html (${sites.length} site entries)`);
+  } catch (e) {
+    console.warn(`Skipped dist/control.html — could not load sites.json: ${e.message}`);
+  }
 
   const s = await stat(join(distRoot, 'index.html'));
   console.log(`Built dist/index.html (${s.size} bytes) — latest run ${latest.runId}`);
