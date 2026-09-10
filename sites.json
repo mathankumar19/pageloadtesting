@@ -36,6 +36,12 @@
     { "name": "splash",      "page": "search",     "url": "https://www.splashfashions.com/ae/{lang}/search?q=shoes" },
     { "name": "splash",      "page": "PDP",        "url": "https://www.splashfashions.com/ae/{lang}/buy-kappa-men-laceup-sports-shoes/p/2025-10M-EXNAVY" },
     { "name": "splash",      "page": "cart",       "url": "https://www.splashfashions.com/ae/{lang}/cart" },
-    { "name": "splash",      "page": "checkout",   "url": "https://www.splashfashions.com/ae/{lang}/quickCheckout" }
+    { "name": "splash",      "page": "checkout",   "url": "https://www.splashfashions.com/ae/{lang}/quickCheckout" },
+    { "name": "emax",        "page": "home",       "url": "https://uae.emaxme.com",                                                                                                                              "languages": ["en"] },
+    { "name": "emax",        "page": "department", "url": "https://uae.emaxme.com/department/macbook",                                                                                                            "languages": ["en"] },
+    { "name": "emax",        "page": "search",     "url": "https://uae.emaxme.com/search?q=iphone",                                                                                                               "languages": ["en"] },
+    { "name": "emax",        "page": "PDP",        "url": "https://uae.emaxme.com/buy-apple-iphone-17-pro-max-256gb-silver-5g-uae-version-p-01K4Y8G5226GEA0FFATTC80Q0F-Silver-256%20GB.html",                     "languages": ["en"] },
+    { "name": "emax",        "page": "cart",       "url": "https://uae.emaxme.com/cart",                                                                                                                          "languages": ["en"] },
+    { "name": "emax",        "page": "checkout",   "url": "https://uae.emaxme.com/quickCheckout",                                                                                                                 "languages": ["en"] }
   ]
 }
