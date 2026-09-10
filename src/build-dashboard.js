@@ -63,7 +63,7 @@ function cell(preset, runId, linkBase, reportPathBase) {
     scoreCell(preset.seo) +
     `<td class="link">` +
       `<a href="${link}" target="_blank" rel="noopener">open ↗</a>` +
-      ` <a href="${pdfHref}" class="pdf-link" data-pdf-report>PDF ↓</a>` +
+      ` <a href="${pdfHref}" class="pdf-link" data-pdf-report data-report-url="${link}">PDF ↓</a>` +
     `</td>`
   );
 }
@@ -145,17 +145,31 @@ function navBar({ active, depth, runCount }) {
 const PDF_LINK_SCRIPT = `
 <script>
 (() => {
-  // The per-report /api/pdf endpoint only exists when the local dev server is running.
-  // On any other host (e.g. a Netlify deploy of dist/), fall back to window.print()
-  // so the link still works — it prints the current dashboard as a PDF.
+  // The per-report /api/pdf endpoint (Puppeteer-based) only exists when the local
+  // dev server is running. On any other host (e.g. a Netlify deploy of dist/),
+  // open the raw Lighthouse HTML in a new tab and trigger the browser's print
+  // dialog so "Save as PDF" produces the same full report the local endpoint does.
   const isLocal = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname) || location.hostname.endsWith('.local');
   if (!isLocal) {
     for (const el of document.querySelectorAll('[data-pdf-report]')) {
-      el.setAttribute('href', '#');
-      el.setAttribute('title', 'Download dashboard as PDF');
+      const reportUrl = el.getAttribute('data-report-url');
+      if (!reportUrl) continue;
+      el.setAttribute('href', reportUrl);
+      el.setAttribute('target', '_blank');
+      el.setAttribute('rel', 'noopener');
+      el.setAttribute('title', 'Open full report and print as PDF');
       el.addEventListener('click', (e) => {
         e.preventDefault();
-        window.print();
+        const w = window.open(reportUrl, '_blank');
+        if (!w) return;
+        // Lighthouse HTML renders its content via JS on load, so we wait a beat
+        // after 'load' to let it paint before invoking the print dialog.
+        const doPrint = () => {
+          setTimeout(() => {
+            try { w.focus(); w.print(); } catch (_) {}
+          }, 800);
+        };
+        w.addEventListener('load', doPrint, { once: true });
       });
     }
   }
