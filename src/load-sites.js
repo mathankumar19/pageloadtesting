@@ -11,19 +11,22 @@ import { readFile } from 'node:fs/promises';
  *       { "name": "max", "language": "ar", "page": "home", "url": "https://.../ar" }
  *     ]
  *
- *   Compact (top-level `languages` + `sites` with `{lang}` placeholder in URL):
+ *   Compact (top-level `languages`/`territories` + `sites` with `{lang}`/`{territory}` placeholders):
  *     {
- *       "languages": ["en", "ar"],
+ *       "languages":    ["en", "ar"],
+ *       "territories":  ["ae", "sa"],
  *       "sites": [
- *         { "name": "max", "page": "home", "url": "https://.../{lang}" }
+ *         { "name": "max", "page": "home", "url": "https://.../{territory}/{lang}" }
  *       ]
  *     }
  *
  * Per-entry overrides in the compact shape:
- *   - `languages`: array on the entry overrides the top-level default.
- *   - If URL has no `{lang}` placeholder and only one language applies, the URL is used as-is.
+ *   - `languages` / `territories`: arrays on the entry override the top-level defaults.
+ *   - If a URL lacks `{lang}` and only one language applies, the URL is used as-is.
+ *   - Same for `{territory}` — omit the placeholder if only one territory applies to the entry.
  *
- * Returns a flat array of concrete audit entries: `{ name, language, page, url }`.
+ * Returns a flat array of concrete audit entries: `{ name, territory, language, page, url }`.
+ * `territory` is `null` on entries that do not opt in to the territory axis.
  */
 export async function loadSites(sitesJsonPath) {
   const raw = await readFile(sitesJsonPath, 'utf8');
@@ -36,6 +39,7 @@ export async function loadSites(sitesJsonPath) {
 
   let sitesData;
   let defaultLanguages = null;
+  let defaultTerritories = null;
   if (Array.isArray(parsed)) {
     sitesData = parsed;
   } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.sites)) {
@@ -45,6 +49,12 @@ export async function loadSites(sitesJsonPath) {
         throw new Error('sites.json top-level `languages` must be a non-empty array');
       }
       defaultLanguages = parsed.languages;
+    }
+    if (parsed.territories !== undefined) {
+      if (!Array.isArray(parsed.territories) || parsed.territories.length === 0) {
+        throw new Error('sites.json top-level `territories` must be a non-empty array');
+      }
+      defaultTerritories = parsed.territories;
     }
   } else {
     throw new Error('sites.json must be an array or an object with a `sites` array');
@@ -77,21 +87,52 @@ export async function loadSites(sitesJsonPath) {
       );
     }
 
-    const hasPlaceholder = entry.url.includes('{lang}');
-    if (!hasPlaceholder && languages.length > 1) {
+    const hasLangPlaceholder = entry.url.includes('{lang}');
+    if (!hasLangPlaceholder && languages.length > 1) {
       throw new Error(
         `sites entry ${i} (${entry.name}/${entry.page}) has multiple languages ` +
         `(${languages.join(', ')}) but URL has no {lang} placeholder`
       );
     }
 
-    for (const language of languages) {
-      expanded.push({
-        name: entry.name,
-        language,
-        page: entry.page,
-        url: hasPlaceholder ? entry.url.replaceAll('{lang}', language) : entry.url,
-      });
+    let territories;
+    if (Array.isArray(entry.territories) && entry.territories.length > 0) {
+      territories = entry.territories;
+    } else if (entry.territory) {
+      territories = [entry.territory];
+    } else if (defaultTerritories) {
+      territories = defaultTerritories;
+    } else {
+      territories = [null];
+    }
+
+    const hasTerritoryPlaceholder = entry.url.includes('{territory}');
+    if (!hasTerritoryPlaceholder && territories.length > 1) {
+      throw new Error(
+        `sites entry ${i} (${entry.name}/${entry.page}) has multiple territories ` +
+        `(${territories.join(', ')}) but URL has no {territory} placeholder`
+      );
+    }
+    if (hasTerritoryPlaceholder && territories.some((t) => t == null)) {
+      throw new Error(
+        `sites entry ${i} (${entry.name}/${entry.page}) has {territory} placeholder ` +
+        `but no territories were declared (set entry.territories or top-level territories)`
+      );
+    }
+
+    for (const territory of territories) {
+      for (const language of languages) {
+        let url = entry.url;
+        if (hasLangPlaceholder) url = url.replaceAll('{lang}', language);
+        if (hasTerritoryPlaceholder) url = url.replaceAll('{territory}', territory);
+        expanded.push({
+          name: entry.name,
+          territory: territory ?? null,
+          language,
+          page: entry.page,
+          url,
+        });
+      }
     }
   }
 

@@ -60,7 +60,7 @@ async function readJsonBody(req, limit = 64 * 1024) {
   });
 }
 
-function buildRunArgs({ brands = [], pages = [], languages = [], presets = [] }) {
+function buildRunArgs({ brands = [], pages = [], languages = [], territories = [], presets = [] }) {
   const args = ['src/run-lighthouse.js'];
   for (const b of brands) args.push(String(b));
   for (const p of presets) {
@@ -71,6 +71,9 @@ function buildRunArgs({ brands = [], pages = [], languages = [], presets = [] })
   }
   if (languages.length) {
     args.push('--lang', languages.map(String).join(','));
+  }
+  if (territories.length) {
+    args.push('--territory', territories.map(String).join(','));
   }
   return args;
 }
@@ -212,6 +215,7 @@ async function handleRun(req, res) {
     brands: Array.isArray(body.brands) ? body.brands : [],
     pages: Array.isArray(body.pages) ? body.pages : [],
     languages: Array.isArray(body.languages) ? body.languages : [],
+    territories: Array.isArray(body.territories) ? body.territories : [],
     presets: Array.isArray(body.presets) ? body.presets : [],
   });
   if (!result.ok) return json(res, 409, { error: result.error });

@@ -11,17 +11,145 @@ const distReports = join(distRoot, 'reports');
 const distRuns = join(distRoot, 'runs');
 const sitesJsonPath = join(projectRoot, 'sites.json');
 
+// Filename shape: `<name>-<page>-[<territory>-]<lang>-<preset>.html`
+// (preset ∈ {mobile,desktop}; lang ∈ {en,ar}; territory is a 2-letter code)
+function parseReportFilename(filename) {
+  if (!filename.endsWith('.html')) return null;
+  const stem = filename.slice(0, -5);
+  const parts = stem.split('-');
+  if (parts.length < 4) return null;
+  const preset = parts[parts.length - 1];
+  if (preset !== 'mobile' && preset !== 'desktop') return null;
+  const lang = parts[parts.length - 2];
+  const maybeTerritory = parts[parts.length - 3];
+  const isTerritory = /^[a-z]{2}$/.test(maybeTerritory) && maybeTerritory !== 'en' && maybeTerritory !== 'ar';
+  const territory = isTerritory ? maybeTerritory : null;
+  const trailing = isTerritory ? 3 : 2;
+  const name = parts[0];
+  const page = parts.slice(1, parts.length - trailing).join('-');
+  return { name, page, territory, lang, preset };
+}
+
+function extractLhrFromHtml(html) {
+  const marker = 'window.__LIGHTHOUSE_JSON__ = ';
+  const start = html.indexOf(marker);
+  if (start === -1) return null;
+  const jsonStart = start + marker.length;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = jsonStart; i < html.length; i++) {
+    const ch = html[i];
+    if (inStr) {
+      if (esc) { esc = false; continue; }
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(html.slice(jsonStart, i + 1)); }
+        catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+
+function metricsFromLhr(lhr) {
+  const cats = lhr.categories ?? {};
+  const audits = lhr.audits ?? {};
+  return {
+    perf: Math.round((cats.performance?.score ?? 0) * 100),
+    a11y: Math.round((cats.accessibility?.score ?? 0) * 100),
+    bestPractices: Math.round((cats['best-practices']?.score ?? 0) * 100),
+    seo: Math.round((cats.seo?.score ?? 0) * 100),
+    lcp: audits['largest-contentful-paint']?.displayValue ?? null,
+    cls: audits['cumulative-layout-shift']?.displayValue ?? null,
+    tbt: audits['total-blocking-time']?.displayValue ?? null,
+  };
+}
+
+async function synthesizeSummary(runId, sitesUrlByKey) {
+  const runFolder = join(reportsRoot, runId);
+  const entries = await readdir(runFolder);
+  const htmlFiles = entries.filter((n) => n.endsWith('.html')).sort();
+  if (htmlFiles.length === 0) return null;
+
+  const rowByKey = new Map();
+  let firstMtime = null, lastMtime = null;
+
+  for (const filename of htmlFiles) {
+    const parsed = parseReportFilename(filename);
+    if (!parsed) continue;
+    const fullPath = join(runFolder, filename);
+    const [html, st] = await Promise.all([readFile(fullPath, 'utf8'), stat(fullPath)]);
+    if (firstMtime == null || st.mtime < firstMtime) firstMtime = st.mtime;
+    if (lastMtime == null || st.mtime > lastMtime) lastMtime = st.mtime;
+    const lhr = extractLhrFromHtml(html);
+    if (!lhr) continue;
+    const { name, page, territory, lang, preset } = parsed;
+    const key = `${name} ${page} ${territory ?? ''} ${lang}`;
+    let row = rowByKey.get(key);
+    if (!row) {
+      row = {
+        name,
+        territory: territory ?? null,
+        language: lang,
+        page,
+        url: sitesUrlByKey.get(key) ?? lhr.finalDisplayedUrl ?? lhr.finalUrl ?? lhr.requestedUrl ?? '',
+        mobile: null,
+        desktop: null,
+      };
+      rowByKey.set(key, row);
+    }
+    row[preset] = { file: filename, ...metricsFromLhr(lhr) };
+  }
+
+  if (rowByKey.size === 0) return null;
+  return {
+    runId,
+    startedAt: (firstMtime ?? new Date()).toISOString(),
+    sites: [...rowByKey.values()],
+    finishedAt: (lastMtime ?? new Date()).toISOString(),
+    failures: [],
+    recovered: true,
+  };
+}
+
 async function findAllCompletedRuns() {
   const entries = await readdir(reportsRoot, { withFileTypes: true });
   const runFolders = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+
+  // Build a (name page territory lang) → url lookup from sites.json for synthesis.
+  let sitesUrlByKey = new Map();
+  try {
+    const expanded = await loadSites(sitesJsonPath);
+    for (const e of expanded) {
+      sitesUrlByKey.set(`${e.name} ${e.page} ${e.territory ?? ''} ${e.language}`, e.url);
+    }
+  } catch {}
+
   const runs = [];
   for (const runId of runFolders) {
+    const summaryPath = join(reportsRoot, runId, 'summary.json');
     try {
-      const summaryPath = join(reportsRoot, runId, 'summary.json');
       await stat(summaryPath);
       const summary = JSON.parse(await readFile(summaryPath, 'utf8'));
       runs.push({ runId, summary });
+      continue;
     } catch {}
+    // No summary.json — try to synthesize one from raw HTMLs (interrupted or in-progress run).
+    try {
+      const summary = await synthesizeSummary(runId, sitesUrlByKey);
+      if (summary) {
+        console.log(`Recovered run ${runId} from ${summary.sites.length} raw report row(s) (no summary.json)`);
+        runs.push({ runId, summary });
+      }
+    } catch (e) {
+      console.warn(`Skipping ${runId} — no summary and recovery failed: ${e.message}`);
+    }
   }
   runs.reverse();
   return runs;
@@ -86,6 +214,7 @@ const BASE_CSS = `
   td.name { font-weight: 600; }
   td.page { font-weight: 500; text-transform: capitalize; color: #333; }
   td.lang { color: #666; text-transform: uppercase; font-size: 12px; }
+  td.territory { color: #666; text-transform: uppercase; font-size: 12px; }
   td.url a { color: #0366d6; text-decoration: none; word-break: break-all; }
   td.url a:hover { text-decoration: underline; }
   td.score { text-align: center; font-weight: 700; font-size: 15px; border-left: 1px solid #eee; }
@@ -185,6 +314,7 @@ function renderRunDashboard(summary, opts) {
     <tr>
       <td class="name">${escapeHtml(s.name)}</td>
       <td class="page">${escapeHtml(s.page ?? '—')}</td>
+      <td class="territory">${escapeHtml(s.territory ?? s.concept ?? '—')}</td>
       <td class="lang">${escapeHtml(s.language)}</td>
       <td class="url"><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.url)}</a></td>
       ${cell(s.mobile, summary.runId, linkBase, reportPathBase)}
@@ -215,6 +345,7 @@ function renderRunDashboard(summary, opts) {
       <tr>
         <th rowspan="2">Site</th>
         <th rowspan="2">Page</th>
+        <th rowspan="2">Territory</th>
         <th rowspan="2">Lang</th>
         <th rowspan="2">URL</th>
         <th class="group" colspan="5">Mobile</th>
@@ -313,26 +444,29 @@ async function pruneStale(dir, validIds) {
 async function copyRunFolder(runId) {
   const src = join(reportsRoot, runId);
   const dst = join(distReports, runId);
-  try {
-    await stat(dst);
-    return false;
-  } catch {}
   await mkdir(dst, { recursive: true });
-  const entries = await readdir(src);
-  for (const name of entries) {
-    if (name.endsWith('.html')) {
-      await copyFile(join(src, name), join(dst, name));
-    }
+  const [srcEntries, dstEntries] = await Promise.all([
+    readdir(src),
+    readdir(dst).catch(() => []),
+  ]);
+  const dstSet = new Set(dstEntries);
+  let copied = 0;
+  for (const name of srcEntries) {
+    if (!name.endsWith('.html')) continue;
+    if (dstSet.has(name)) continue;
+    await copyFile(join(src, name), join(dst, name));
+    copied++;
   }
-  return true;
+  return copied > 0;
 }
 
 function renderStaticControlPage(sites, runCount) {
   const brands    = [...new Set(sites.map(s => s.name))];
   const pages     = [...new Set(sites.map(s => s.page))];
   const languages = [...new Set(sites.map(s => s.language))];
+  const territories = [...new Set(sites.map(s => s.territory).filter(t => t != null))];
   const presets   = ['mobile', 'desktop'];
-  const inlineData = JSON.stringify({ sites, brands, pages, languages, presets });
+  const inlineData = JSON.stringify({ sites, brands, pages, languages, territories, presets });
 
   return `<!doctype html>
 <html lang="en">
@@ -414,6 +548,11 @@ function renderStaticControlPage(sites, runCount) {
   </section>
 
   <section class="filter">
+    <h3>Territories <span class="quicklinks"><a href="#" data-all="territory">All</a><a href="#" data-none="territory">None</a></span></h3>
+    <div class="checkboxes" id="territories"></div>
+  </section>
+
+  <section class="filter">
     <h3>Presets <span class="quicklinks"><a href="#" data-all="preset">All</a></span></h3>
     <div class="checkboxes" id="presets"></div>
   </section>
@@ -434,7 +573,7 @@ function renderStaticControlPage(sites, runCount) {
   const AUDIT_SECS = 75;
   const DELAY_SECS = 12;
   const DATA = ${inlineData};
-  const { sites, brands, pages, languages, presets } = DATA;
+  const { sites, brands, pages, languages, territories, presets } = DATA;
 
   function makeBoxes(container, values, group) {
     for (const v of values) {
@@ -447,17 +586,19 @@ function renderStaticControlPage(sites, runCount) {
   makeBoxes(document.getElementById('brands'),    brands,    'brand');
   makeBoxes(document.getElementById('pages'),     pages,     'page');
   makeBoxes(document.getElementById('languages'), languages, 'lang');
+  makeBoxes(document.getElementById('territories'), territories, 'territory');
   makeBoxes(document.getElementById('presets'),   presets,   'preset');
 
   const selectedValues = (group) =>
     [...document.querySelectorAll('input[name="' + group + '"]:checked')].map(el => el.value);
 
-  function buildCommand(b, p, lg, pr) {
+  function buildCommand(b, p, lg, tr, pr) {
     const parts = ['npm', 'run', 'report', '--'];
     if (b.length && b.length !== brands.length) parts.push(...b);
     for (const preset of pr) if (preset === 'mobile' || preset === 'desktop') parts.push('--' + preset);
     if (p.length && p.length !== pages.length) parts.push('--page', p.join(','));
     if (lg.length && lg.length !== languages.length) parts.push('--lang', lg.join(','));
+    if (tr.length && tr.length !== territories.length) parts.push('--territory', tr.join(','));
     if (parts.length === 4) return 'npm run report';
     return parts.join(' ');
   }
@@ -469,22 +610,29 @@ function renderStaticControlPage(sites, runCount) {
     const b = selectedValues('brand');
     const p = selectedValues('page');
     const lg = selectedValues('lang');
+    const tr = selectedValues('territory');
     const pr = selectedValues('preset');
-    const bSet = new Set(b), pSet = new Set(p), lgSet = new Set(lg);
-    const filtered = sites.filter(s => bSet.has(s.name) && pSet.has(s.page) && lgSet.has(s.language));
+    const bSet = new Set(b), pSet = new Set(p), lgSet = new Set(lg), trSet = new Set(tr);
+    const filtered = sites.filter(s =>
+      bSet.has(s.name) &&
+      pSet.has(s.page) &&
+      lgSet.has(s.language) &&
+      (s.territory == null || trSet.has(s.territory))
+    );
     const audits = filtered.length * pr.length;
     document.getElementById('auditCount').textContent = audits;
     document.getElementById('breakdown').textContent =
       '(' + b.length + ' brand' + (b.length===1?'':'s') + ' × ' +
       p.length + ' page' + (p.length===1?'':'s') + ' × ' +
       lg.length + ' lang' + (lg.length===1?'':'s') + ' × ' +
+      tr.length + ' territor' + (tr.length===1?'y':'ies') + ' × ' +
       pr.length + ' preset' + (pr.length===1?'':'s') + ')';
     const totalSecs = audits > 0 ? audits * AUDIT_SECS + (audits - 1) * DELAY_SECS : 0;
     document.getElementById('timeEst').textContent =
       audits === 0 ? '—' : totalSecs < 90 ? '~' + Math.round(totalSecs) + 's' : '~' + Math.round(totalSecs / 60) + ' min';
     const est = document.querySelector('.estimate b#timeEst');
     est.className = totalSecs > 15 * 60 ? 'bad' : totalSecs > 5 * 60 ? 'warn' : '';
-    document.getElementById('cmd').textContent = buildCommand(b, p, lg, pr);
+    document.getElementById('cmd').textContent = buildCommand(b, p, lg, tr, pr);
   }
 
   document.querySelectorAll('.checkboxes input').forEach(cb => cb.addEventListener('change', refresh));

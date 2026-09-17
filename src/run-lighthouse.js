@@ -61,14 +61,15 @@ function filterSitesByNames(sites, requestedNames) {
 }
 
 const KNOWN_BOOL_FLAGS = new Set(['--mobile', '--desktop']);
-const KNOWN_VALUE_FLAGS = new Set(['--page', '--lang']);
+const KNOWN_VALUE_FLAGS = new Set(['--page', '--lang', '--territory']);
 
 function parseCliArgs(argv) {
   const brands = [];
   const presetFlags = new Set();
   const pageFilters = new Set();
   const langFilters = new Set();
-  const valueTargets = { '--page': pageFilters, '--lang': langFilters };
+  const territoryFilters = new Set();
+  const valueTargets = { '--page': pageFilters, '--lang': langFilters, '--territory': territoryFilters };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) {
@@ -96,10 +97,10 @@ function parseCliArgs(argv) {
         if (trimmed) target.add(trimmed.toLowerCase());
       }
     } else {
-      throw new Error(`Unknown flag: ${flagName}. Known flags: --mobile, --desktop, --page, --lang`);
+      throw new Error(`Unknown flag: ${flagName}. Known flags: --mobile, --desktop, --page, --lang, --territory`);
     }
   }
-  return { brands, presetFlags, pageFilters, langFilters };
+  return { brands, presetFlags, pageFilters, langFilters, territoryFilters };
 }
 
 function filterPresets(presets, presetFlags) {
@@ -127,6 +128,19 @@ function filterSitesByLanguages(sites, langFilters) {
     throw new Error(`Unknown language(s): ${unknown.join(', ')}. Available: ${availList}`);
   }
   return sites.filter((s) => langFilters.has(s.language.toLowerCase()));
+}
+
+function filterSitesByTerritories(sites, territoryFilters) {
+  if (territoryFilters.size === 0) return sites;
+  const available = new Set(
+    sites.map((s) => (s.territory == null ? null : s.territory.toLowerCase())).filter((t) => t != null)
+  );
+  const unknown = [...territoryFilters].filter((t) => !available.has(t));
+  if (unknown.length) {
+    const availList = [...available].sort().join(', ');
+    throw new Error(`Unknown territory(s): ${unknown.join(', ')}. Available: ${availList}`);
+  }
+  return sites.filter((s) => s.territory != null && territoryFilters.has(s.territory.toLowerCase()));
 }
 
 async function launchChrome(chromePath, preset) {
@@ -212,11 +226,12 @@ async function auditWithRetries({ site, preset, chromePath, label }) {
 }
 
 async function main() {
-  const { brands, presetFlags, pageFilters, langFilters } = parseCliArgs(process.argv.slice(2));
+  const { brands, presetFlags, pageFilters, langFilters, territoryFilters } = parseCliArgs(process.argv.slice(2));
   const allSites = await loadSites(join(projectRoot, 'sites.json'));
   const brandFiltered = filterSitesByNames(allSites, brands);
   const pageFiltered = filterSitesByPages(brandFiltered, pageFilters);
-  const sites = filterSitesByLanguages(pageFiltered, langFilters);
+  const langFiltered = filterSitesByLanguages(pageFiltered, langFilters);
+  const sites = filterSitesByTerritories(langFiltered, territoryFilters);
   const presets = filterPresets(PRESETS, presetFlags);
   if (sites.length === 0) {
     throw new Error('No entries remain after filters. Check your brand and --page values against sites.json.');
@@ -235,6 +250,9 @@ async function main() {
   if (langFilters.size) {
     console.log(`Lang filter:    ${[...langFilters].join(', ')}`);
   }
+  if (territoryFilters.size) {
+    console.log(`Territory filter: ${[...territoryFilters].join(', ')}`);
+  }
   if (presetFlags.size) {
     console.log(`Preset filter:  ${presets.map((p) => p.name).join(', ')}`);
   }
@@ -252,16 +270,19 @@ async function main() {
   for (const site of sites) {
     const siteRow = {
       name: site.name,
+      territory: site.territory ?? null,
       language: site.language,
       page: site.page,
       url: site.url,
       mobile: null,
       desktop: null,
     };
+    const territorySegment = site.territory ? `${site.territory}/` : '';
+    const territoryFilePart = site.territory ? `${sanitize(site.territory)}-` : '';
     for (const preset of presets) {
       done += 1;
-      const label = `[${done}/${total}] ${site.name}/${site.page}/${site.language}/${preset.name}`;
-      const filename = `${sanitize(site.name)}-${sanitize(site.page)}-${sanitize(site.language)}-${preset.name}.html`;
+      const label = `[${done}/${total}] ${site.name}/${site.page}/${territorySegment}${site.language}/${preset.name}`;
+      const filename = `${sanitize(site.name)}-${sanitize(site.page)}-${territoryFilePart}${sanitize(site.language)}-${preset.name}.html`;
       const outcome = await auditWithRetries({ site, preset, chromePath, label });
       if (outcome.ok) {
         const { report, ...metrics } = outcome.data;
@@ -269,7 +290,7 @@ async function main() {
         siteRow[preset.name] = { file: filename, ...metrics };
       } else {
         const errMsg = outcome.error?.message ?? 'unknown error';
-        failures.push({ site: site.name, page: site.page, language: site.language, preset: preset.name, error: errMsg });
+        failures.push({ site: site.name, page: site.page, territory: site.territory ?? null, language: site.language, preset: preset.name, error: errMsg });
         siteRow[preset.name] = { file: null, error: errMsg };
       }
       if (done < total && DELAY_BETWEEN_AUDITS_MS > 0) {
@@ -287,7 +308,8 @@ async function main() {
   if (failures.length) {
     console.log(`\n${failures.length} audit(s) failed:`);
     for (const f of failures) {
-      console.log(`  - ${f.site}/${f.page}/${f.language}/${f.preset}: ${f.error}`);
+      const territoryPart = f.territory ? `${f.territory}/` : '';
+      console.log(`  - ${f.site}/${f.page}/${territoryPart}${f.language}/${f.preset}: ${f.error}`);
     }
     process.exitCode = 2;
   }
